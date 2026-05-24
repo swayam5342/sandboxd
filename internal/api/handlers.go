@@ -2,12 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/swayam5342/sandboxd/internal/models"
 )
 
 type Handler struct {
+	logger *slog.Logger
 }
 
 func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {

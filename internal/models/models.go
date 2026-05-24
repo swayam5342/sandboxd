@@ -1,6 +1,7 @@
 package models
 
 import (
+	"io"
 	"net/http"
 	"time"
 )
@@ -24,4 +25,10 @@ type HttpConfig struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	IdleTimeout  time.Duration
+}
+
+type LoggerConfig struct {
+	Level  string
+	JSON   bool
+	Output io.Writer
 }

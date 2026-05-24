@@ -3,21 +3,39 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/swayam5342/sandboxd/internal/api"
 	"github.com/swayam5342/sandboxd/internal/config"
+	logger "github.com/swayam5342/sandboxd/internal/loger"
+	"github.com/swayam5342/sandboxd/internal/models"
+	"github.com/swayam5342/sandboxd/internal/util"
 )
 
 func main() {
-	fmt.Println("INIT")
+	os.MkdirAll("log", os.ModePerm)
+	file1, _ := os.OpenFile("log/app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	multiWriter := io.MultiWriter(os.Stdout, file1)
+	logger := logger.New(models.LoggerConfig{
+		Level:  util.EnvOr("LOG_LEVEL", "info"),
+		JSON:   util.EnvOr("LOG_JSON", "true") == "true",
+		Output: multiWriter,
+	})
 
-	sc := &api.ServerConfig{}
+	err := godotenv.Load()
+	if err != nil {
+		logger.Error("Error loading .env file")
+	}
+
+	sc := &api.ServerConfig{
+		Logger: logger,
+	}
 	router := api.NewRouter(sc)
 
 	httpConfig := config.NewHttpConfig(router)
