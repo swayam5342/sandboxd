@@ -16,9 +16,9 @@ registry, and aggregating the results.
 
 ```text
                 ┌─────────────────────────────────────────────────┐
-   HTTP POST ──▶│  chi Router (internal/api)                      │
+ HTTP POST  ──▶│  chi Router (internal/api)                      │
    /run         │   └── Handler.Run()                             │
-                │         ├── ValidateRunRequest()                 │
+                │         ├── ValidateRunRequest()                │
                 │         └── runner.Run()                        │
                 │               ├── semaphore acquire             │
                 │               ├── createSandboxDir()            │
