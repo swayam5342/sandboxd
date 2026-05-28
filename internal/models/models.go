@@ -180,5 +180,4 @@ type ServerStats struct {
 	JobsTotal           int64      `json:"jobs_total"`
 	JobsFailedInternal  int64      `json:"jobs_failed_internal"`
 	LastInternalErrorAt *time.Time `json:"last_internal_error_at,omitempty"`
-	DiskFreeByteJailDir int64      `json:"disk_free_bytes_jail_dir"`
 }

@@ -68,3 +68,4 @@ go.sum.bak
 *test.go
 
 test
+lang.yaml

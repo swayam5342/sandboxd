@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/swayam5342/sandboxd/internal/models"
@@ -69,7 +71,9 @@ func load(data []byte) (*Config, error) {
 	}
 	for i := range cfg.Languages {
 		lang := &cfg.Languages[i]
-		//! To do validate the lang config
+		if err := validateLanguageConfig(lang); err != nil {
+			return nil, fmt.Errorf("config: language[%d] (%s): %w", i, lang.ID, err)
+		}
 		cfg.LanguagesByID[lang.ID] = lang
 		cfg.KnownLanguages[lang.ID] = true
 		var combined []string
@@ -103,5 +107,126 @@ func NewHttpConfig(h http.Handler) *models.HttpConfig {
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 		IdleTimeout:  idleTimeout,
+	}
+}
+
+func validateLanguageConfig(lang *Language) error {
+	if lang.ID == "" {
+		return fmt.Errorf("id is required")
+	}
+	if lang.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if err := validateFilenameStrategy(lang.SourceFilenameStrategy, "source_filename_strategy"); err != nil {
+		return err
+	}
+	if err := validateFilenameStrategy(lang.ArtifactFilenameStrategy, "artifact_filename_strategy"); err != nil {
+		return err
+	}
+
+	if lang.SourceFilenameStrategy == "fixed" && lang.SourceFilename == "" {
+		return fmt.Errorf("source_filename is required when source_filename_strategy is 'fixed'")
+	}
+	if lang.Run.Cmd == "" {
+		return fmt.Errorf("run.cmd is required")
+	}
+	if lang.Build != nil && lang.Build.Cmd == "" {
+		return fmt.Errorf("build.cmd is required when build block is present")
+	}
+	return nil
+}
+
+func validateFilenameStrategy(strategy, fieldName string) error {
+	switch strategy {
+	case "", "fixed", "from_request":
+		return nil
+	default:
+		return fmt.Errorf("%s must be 'fixed' or 'from_request', got %q", fieldName, strategy)
+	}
+}
+
+func (l *Language) EffectiveSourceFilename(fromRequest string) string {
+	if l.SourceFilenameStrategy == "from_request" {
+		return fromRequest
+	}
+	return l.SourceFilename
+}
+
+func (l *Language) EffectiveArtifactFilename(fromRequest string) string {
+	if l.ArtifactFilenameStrategy == "from_request" {
+		return fromRequest
+	}
+	return l.ArtifactFilename
+}
+
+func (l *Language) EffectiveBuildLimits(override *models.LimitOverride) Limits {
+	if l.Build == nil {
+		return Limits{}
+	}
+	return mergeLimits(l.Build.Limits, override)
+}
+
+func (l *Language) EffectiveRunLimits(override *models.LimitOverride) Limits {
+	return mergeLimits(l.Run.Limits, override)
+}
+
+func mergeLimits(defaults Limits, override *models.LimitOverride) Limits {
+	result := defaults
+	if override == nil {
+		return result
+	}
+	if override.WallTimeS != nil {
+		result.WallTimeS = *override.WallTimeS
+	}
+	if override.MemoryKB != nil {
+		result.MemoryKB = *override.MemoryKB
+	}
+	if override.MaxProcesses != nil {
+		result.MaxProcesses = *override.MaxProcesses
+	}
+	return result
+}
+
+type ProbeResult struct {
+	OK      bool
+	Version string
+	Err     string
+}
+
+func ProbeLanguage(lang *Language) ProbeResult {
+	binary := lang.Run.Cmd
+	if lang.Build != nil {
+		binary = lang.Build.Cmd
+	}
+	out, err := exec.Command(binary, lang.Check).CombinedOutput()
+	if err != nil {
+		return ProbeResult{
+			OK:  false,
+			Err: fmt.Sprintf("%s %s failed: %v", binary, lang.Check, err),
+		}
+	}
+	version := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+	return ProbeResult{OK: true, Version: version}
+}
+
+func ProbeNsjail(path string) (ok bool, version string, err error) {
+	out, execErr := exec.Command(path, "--help").CombinedOutput()
+	if execErr != nil {
+		return false, "", fmt.Errorf("%s --help failed: %w", path, execErr)
+	}
+	v := strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0]
+	return true, v, nil
+}
+
+func (l *Language) ToLanguageInfo(version string) models.LanguageInfo {
+	return models.LanguageInfo{
+		ID:      l.ID,
+		Name:    l.Name,
+		Version: version,
+		DefaultRunLimits: models.RunLimits{
+			WallTimeS:    l.Run.Limits.WallTimeS,
+			MemoryKB:     l.Run.Limits.MemoryKB,
+			MaxProcesses: l.Run.Limits.MaxProcesses,
+		},
 	}
 }

@@ -15,7 +15,13 @@ import (
 	"github.com/swayam5342/sandboxd/internal/config"
 	logger "github.com/swayam5342/sandboxd/internal/loger"
 	"github.com/swayam5342/sandboxd/internal/models"
+	"github.com/swayam5342/sandboxd/internal/runner"
 	"github.com/swayam5342/sandboxd/internal/util"
+)
+
+var (
+	version = "dev"
+	commit  = "unknown"
 )
 
 func main() {
@@ -27,14 +33,35 @@ func main() {
 		JSON:   util.EnvOr("LOG_JSON", "true") == "true",
 		Output: multiWriter,
 	})
-
 	err := godotenv.Load()
 	if err != nil {
 		logger.Error("Error loading .env file")
 	}
 
+	cfgPath := util.EnvOr("LANG_CONFIG", "config/lang.yaml")
+	cfg, err := config.LoadFile(cfgPath)
+	if err != nil {
+		logger.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	logger.Info("config loaded", "languages", len(cfg.Languages))
+	nsjailPath := util.EnvOr("NSJAIL_PATH", "/usr/sbin/nsjail")
+	maxConcurrent := util.EnvIntOr("MAX_CONCURRENT", 100)
+
+	r := runner.New(runner.Options{
+		NsjailPath:    nsjailPath,
+		MaxConcurrent: maxConcurrent,
+		Logger:        logger,
+	})
+
 	sc := &api.ServerConfig{
-		Logger: logger,
+		Config:     cfg,
+		Runner:     r,
+		Logger:     logger,
+		Version:    version,
+		Commit:     commit,
+		NsjailPath: nsjailPath,
 	}
 	router := api.NewRouter(sc)
 
@@ -46,6 +73,29 @@ func main() {
 		ReadTimeout:  httpConfig.ReadTimeout,
 		WriteTimeout: httpConfig.WriteTimeout,
 		IdleTimeout:  httpConfig.IdleTimeout,
+	}
+	logger.Info("running startup probes...")
+	ok, nsjailVer, probeErr := config.ProbeNsjail(nsjailPath)
+	if !ok {
+		logger.Error("nsjail not found at startup", "path", nsjailPath, "error", probeErr)
+		os.Exit(1)
+	}
+	logger.Info("nsjail ok", "version", nsjailVer)
+
+	allOK := true
+	for i := range cfg.Languages {
+		lang := &cfg.Languages[i]
+		result := config.ProbeLanguage(lang)
+		if result.OK {
+			logger.Info("language ok", "id", lang.ID, "version", result.Version)
+		} else {
+			logger.Error("language probe failed", "id", lang.ID, "error", result.Err)
+			allOK = false
+		}
+	}
+	if !allOK {
+		logger.Error("one or more language probes failed — fix the toolchain or remove the language from config")
+		os.Exit(1)
 	}
 
 	quit := make(chan os.Signal, 1)

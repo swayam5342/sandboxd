@@ -171,7 +171,9 @@ func (r *Runner) runPhase(ctx context.Context, args phaseArgs) (*phaseResult, er
 	jailCmd = strings.ReplaceAll(jailCmd, "{{source}}", jailSourcePath)
 
 	nsjailArgs := NsjailArgs(r.nsjailPath, args.sandboxDir, args.limits, jailCmd, expandedArgs)
-	r.logger.Info("nsjail command", "full_cmd", strings.Join(nsjailArgs, " "))
+
+	//? for debug only and if posilbe switch to protobuff for config
+	//r.logger.Info("nsjail command", "full_cmd", strings.Join(nsjailArgs, " "))
 
 	cmd := exec.CommandContext(ctx, nsjailArgs[0], nsjailArgs[1:]...)
 	if args.stdin != "" {
@@ -264,7 +266,7 @@ func createSandboxDir(requestID string) (string, error) {
 	}
 	dirPath := filepath.Join(
 		JailBaseDir,
-		fmt.Sprintf("%s-%d", requestID, time.Now().UnixNano()),
+		requestID,
 	)
 	if err := os.Mkdir(dirPath, 0700); err != nil {
 		return "", fmt.Errorf("create sandbox dir: %w", err)
