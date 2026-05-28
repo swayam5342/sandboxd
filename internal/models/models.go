@@ -76,6 +76,7 @@ type TestResult struct {
 	Status       string `json:"status"`
 	Stdout       string `json:"stdout"`
 	Stderr       string `json:"stderr"`
+	ExitCode     int    `json:"Exitcode"`
 	DurationMs   int64  `json:"duration_ms"`
 	MemoryPeakKB int64  `json:"memory_peak_kb"`
 }
