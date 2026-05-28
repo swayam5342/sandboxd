@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  sandboxd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sandboxd-service
+    restart: unless-stopped
+    ports:
+      - "8089:8089"
+    # Nsjail needs elevated privileges in Docker to create sub-namespaces (IPC, Mount, PID, User, etc.)
+    # and bind-mount directories inside the chroot jail.
+    privileged: true
+    environment:
+      - PORT=:8089
+      - LOG_LEVEL=info
+      - LOG_JSON=true
+      - MAX_CONCURRENT=100
+      - NSJAIL_PATH=/usr/sbin/nsjail
+      - NSJAIL_BASE_DIR=/tmp/sandboxd-jails
+    volumes:
+      - sandboxd-jails:/tmp/sandboxd-jails
+
+volumes:
+  sandboxd-jails:
