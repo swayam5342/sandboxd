@@ -12,8 +12,8 @@
 +--------------------------------------------------------------+
 | Host OS                                                      |
 |   +--------------------------------------------------------+ |
-|   | isolated nsjail chroot (/tmp/sandboxd-jails/...)        | |
-|   |   - USER Namespace (Nobody UID 65534 / GID 65534)       | |
+|   | isolated nsjail chroot (/tmp/sandboxd-jails/...)       | |
+|   |   - USER Namespace (Nobody UID 65534 / GID 65534)      | |
 |   |   - MOUNT Namespace (Read-only System Binds)           | |
 |   |   - PID Namespace (Isolates from external PIDs)        | |
 |   |   - NET Namespace (iface_no_lo: Network cut off)       | |
