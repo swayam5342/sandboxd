@@ -170,19 +170,29 @@ func (l *Language) EffectiveRunLimits(override *models.LimitOverride) Limits {
 	return mergeLimits(l.Run.Limits, override)
 }
 
+func clampOverride(value, max int) int {
+	if value < 1 {
+		return 1
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
 func mergeLimits(defaults Limits, override *models.LimitOverride) Limits {
 	result := defaults
 	if override == nil {
 		return result
 	}
 	if override.WallTimeS != nil {
-		result.WallTimeS = *override.WallTimeS
+		result.WallTimeS = clampOverride(*override.WallTimeS, defaults.WallTimeS)
 	}
 	if override.MemoryKB != nil {
-		result.MemoryKB = *override.MemoryKB
+		result.MemoryKB = clampOverride(*override.MemoryKB, defaults.MemoryKB)
 	}
 	if override.MaxProcesses != nil {
-		result.MaxProcesses = *override.MaxProcesses
+		result.MaxProcesses = clampOverride(*override.MaxProcesses, defaults.MaxProcesses)
 	}
 	return result
 }

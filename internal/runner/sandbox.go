@@ -275,7 +275,29 @@ func createSandboxDir(requestID string) (string, error) {
 	if err := os.Mkdir(tmpPath, 0777); err != nil {
 		return "", fmt.Errorf("create tmp dir: %w", err)
 	}
+	if err := writeMinimalEtc(dirPath); err != nil {
+		return "", fmt.Errorf("create jail etc: %w", err)
+	}
 	return dirPath, nil
+}
+
+func writeMinimalEtc(sandboxDir string) error {
+	etcPath := filepath.Join(sandboxDir, "etc")
+	if err := os.Mkdir(etcPath, 0755); err != nil {
+		return err
+	}
+	files := map[string]string{
+		"passwd":        "nobody:x:65534:65534:nobody:/:/usr/sbin/nologin\n",
+		"group":         "nobody:x:65534:\n",
+		"nsswitch.conf": "passwd: files\ngroup: files\nhosts: files\n",
+		"hosts":         "127.0.0.1 localhost\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(etcPath, name), []byte(content), 0644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func expandArgs(templateArgs []string, sourcePath, artifactPath string, flags []string, workdir string) []string {
@@ -298,8 +320,9 @@ func expandArgs(templateArgs []string, sourcePath, artifactPath string, flags []
 }
 
 func (lw *limitedWriter) Write(p []byte) (int, error) {
+	orig := len(p)
 	if lw.written >= lw.limit {
-		return len(p), nil
+		return orig, nil
 	}
 	remaining := lw.limit - lw.written
 	if len(p) > remaining {
@@ -307,7 +330,10 @@ func (lw *limitedWriter) Write(p []byte) (int, error) {
 	}
 	n, err := lw.w.Write(p)
 	lw.written += n
-	return len(p), err
+	if err != nil {
+		return n, err
+	}
+	return orig, nil
 }
 
 func truncateIfNeeded(s string) string {
@@ -342,13 +368,13 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 		"--rlimit_nofile", "64", // max open file descriptors
 		"--rlimit_stack", "64", // max stack: 64 MB
 
-		// Bind-mount host runtimes read-only into the jail
+		"--rlimit_as", fmt.Sprintf("%d", clampMinInt(limits.MemoryKB/1024, 1)), // max address space, in MB
+		"--rlimit_nproc", fmt.Sprintf("%d", clampMinInt(limits.MaxProcesses, 1)), // max processes/threads
 		"--bindmount_ro", "/usr",
 		"--bindmount_ro", "/lib",
 		"--bindmount_ro", "/lib64",
 		"--bindmount_ro", "/bin",
-		"--bindmount_ro", "/proc",
-		"--bindmount_ro", "/etc",
+		"--mount", "none:/proc:proc:",
 
 		// Inject safe environment path so compilers/runtimes can find toolchain binaries (e.g. ld)
 		"--env", "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
@@ -362,6 +388,13 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 
 	args = append(args, "--", userCmd)
 	return append(args, userArgs...)
+}
+
+func clampMinInt(value, min int) int {
+	if value < min {
+		return min
+	}
+	return value
 }
 
 func nsjailCgroupWorks() bool {

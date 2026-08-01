@@ -17,6 +17,7 @@ type ServerConfig struct {
 	Version    string
 	Commit     string
 	NsjailPath string
+	APIKey     string
 }
 
 func NewRouter(sc *ServerConfig) http.Handler {
@@ -38,6 +39,6 @@ func NewRouter(sc *ServerConfig) http.Handler {
 	r.Get("/healthz", h.Healthz)
 	r.Get("/info", h.Info)
 	r.Get("/readyz", h.Readyz)
-	r.Post("/run", h.Run)
+	r.With(RequireAPIKey(sc.APIKey)).Post("/run", h.Run)
 	return r
 }

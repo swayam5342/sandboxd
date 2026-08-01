@@ -48,6 +48,10 @@ func main() {
 	logger.Info("config loaded", "languages", len(cfg.Languages))
 	nsjailPath := util.EnvOr("NSJAIL_PATH", "/usr/sbin/nsjail")
 	maxConcurrent := util.EnvIntOr("MAX_CONCURRENT", 100)
+	apiKey := util.EnvOr("API_KEY", "")
+	if apiKey == "" {
+		logger.Warn("API_KEY is not set — /run is unauthenticated and open to anyone who can reach this port")
+	}
 
 	r := runner.New(runner.Options{
 		NsjailPath:    nsjailPath,
@@ -62,6 +66,7 @@ func main() {
 		Version:    version,
 		Commit:     commit,
 		NsjailPath: nsjailPath,
+		APIKey:     apiKey,
 	}
 	router := api.NewRouter(sc)
 
@@ -97,6 +102,8 @@ func main() {
 		logger.Error("one or more language probes failed — fix the toolchain or remove the language from config")
 		os.Exit(1)
 	}
+
+	runner.SweepOrphanDirs(logger)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

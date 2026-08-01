@@ -16,7 +16,7 @@ registry, and aggregating the results.
 
 ```text
                 ┌─────────────────────────────────────────────────┐
- HTTP POST  ──▶│  chi Router (internal/api)                      │
+ HTTP POST  ──> │  chi Router (internal/api)                      │
    /run         │   └── Handler.Run()                             │
                 │         ├── ValidateRunRequest()                │
                 │         └── runner.Run()                        │
@@ -28,14 +28,14 @@ registry, and aggregating the results.
                 │               └── os.RemoveAll() cleanup        │
                 └──────────────────────┬──────────────────────────┘
                                        │ exec.Command
-                                       ▼
+                                      \ /
                        ┌──────────────────────────────────┐
-                       │  nsjail (Linux namespaces)        │
-                       │   ├── user / pid / mount / net ns │
-                       │   ├── chroot to sandbox dir       │
-                       │   ├── rlimit_fsize / nofile /     │
-                       │   │   stack + optional cgroup v2  │
-                       │   └── exec compiler / runtime     │
+                       │  nsjail (Linux namespaces)       │
+                       │   ├── user / pid / mount / net ns│
+                       │   ├── chroot to sandbox dir      │
+                       │   ├── rlimit_fsize / nofile /    │
+                       │   │   stack + optional cgroup v2 │
+                       │   └── exec compiler / runtime    │
                        └──────────────────────────────────┘
 ```
 

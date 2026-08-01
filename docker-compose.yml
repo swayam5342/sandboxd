@@ -9,9 +9,21 @@ services:
     restart: unless-stopped
     ports:
       - "8089:8089"
-    # Nsjail needs elevated privileges in Docker to create sub-namespaces (IPC, Mount, PID, User, etc.)
-    # and bind-mount directories inside the chroot jail.
-    privileged: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN   
+      - SYS_CHROOT   
+      - SYS_RESOURCE 
+      - SYS_PTRACE   
+      - NET_ADMIN     
+      - SETUID        
+      - SETGID       
+      - DAC_OVERRIDE 
+      - KILL          
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
     environment:
       - PORT=:8089
       - LOG_LEVEL=info
