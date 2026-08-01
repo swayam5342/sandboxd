@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,10 +15,11 @@ import (
 )
 
 type Config struct {
-	Languages      []Language
-	LanguagesByID  map[string]*Language
-	KnownLanguages map[string]bool
-	AllowedFlags   map[string][]string
+	Languages        []Language
+	LanguagesByID    map[string]*Language
+	KnownLanguages   map[string]bool
+	AllowedBuildFlags map[string][]string
+	AllowedRunFlags   map[string][]string
 }
 
 type Language struct {
@@ -64,10 +66,11 @@ func load(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("config: no languages defined in YAML")
 	}
 	cfg := &Config{
-		Languages:      raw.Languages,
-		LanguagesByID:  make(map[string]*Language, len(raw.Languages)),
-		KnownLanguages: make(map[string]bool, len(raw.Languages)),
-		AllowedFlags:   make(map[string][]string, len(raw.Languages)),
+		Languages:         raw.Languages,
+		LanguagesByID:     make(map[string]*Language, len(raw.Languages)),
+		KnownLanguages:    make(map[string]bool, len(raw.Languages)),
+		AllowedBuildFlags: make(map[string][]string, len(raw.Languages)),
+		AllowedRunFlags:   make(map[string][]string, len(raw.Languages)),
 	}
 	for i := range cfg.Languages {
 		lang := &cfg.Languages[i]
@@ -76,12 +79,10 @@ func load(data []byte) (*Config, error) {
 		}
 		cfg.LanguagesByID[lang.ID] = lang
 		cfg.KnownLanguages[lang.ID] = true
-		var combined []string
 		if lang.Build != nil {
-			combined = append(combined, lang.Build.FlagAllowlist...)
+			cfg.AllowedBuildFlags[lang.ID] = lang.Build.FlagAllowlist
 		}
-		combined = append(combined, lang.Run.FlagAllowlist...)
-		cfg.AllowedFlags[lang.ID] = combined
+		cfg.AllowedRunFlags[lang.ID] = lang.Run.FlagAllowlist
 	}
 	return cfg, nil
 }
@@ -203,12 +204,19 @@ type ProbeResult struct {
 	Err     string
 }
 
+// probeTimeout bounds every toolchain probe subprocess. /info and /readyz
+// are unauthenticated and run one of these per configured language on every
+// request, so a hung binary must not be able to hang the handler.
+const probeTimeout = 5 * time.Second
+
 func ProbeLanguage(lang *Language) ProbeResult {
 	binary := lang.Run.Cmd
 	if lang.Build != nil {
 		binary = lang.Build.Cmd
 	}
-	out, err := exec.Command(binary, lang.Check).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, binary, lang.Check).CombinedOutput()
 	if err != nil {
 		return ProbeResult{
 			OK:  false,
@@ -220,7 +228,9 @@ func ProbeLanguage(lang *Language) ProbeResult {
 }
 
 func ProbeNsjail(path string) (ok bool, version string, err error) {
-	out, execErr := exec.Command(path, "--help").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, execErr := exec.CommandContext(ctx, path, "--help").CombinedOutput()
 	if execErr != nil {
 		return false, "", fmt.Errorf("%s --help failed: %w", path, execErr)
 	}

@@ -65,8 +65,5 @@ mem.prof
 go.sum.bak
 !example.env
 
-*test.go
-
-test
-lang.yaml
 issues
+test

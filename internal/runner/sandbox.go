@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -25,7 +24,10 @@ var (
 	JailBaseDir      string        = util.EnvOr("NSJAIL_BASE_DIR", "/tmp/sandboxd-jails")
 	OrphanMaxAge     time.Duration = time.Duration(util.EnvIntOr("ORPHAN_PROC_TIME", 10)) * time.Minute
 )
-var jobCounter atomic.Uint64
+const (
+	sandboxUID = 65534
+	sandboxGID = 65534
+)
 
 type phaseArgs struct {
 	sandboxDir       string
@@ -271,13 +273,45 @@ func createSandboxDir(requestID string) (string, error) {
 	if err := os.Mkdir(dirPath, 0700); err != nil {
 		return "", fmt.Errorf("create sandbox dir: %w", err)
 	}
+	// From here on, clean up the partially-built dir on any failure instead
+	// of leaking it — the caller only gets to defer a cleanup once this
+	// function returns successfully.
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			_ = os.RemoveAll(dirPath)
+		}
+	}()
+	// This directory becomes the jailed process's chroot root ("/"), and
+	// compilers/interpreters need to read AND write directly in it (e.g.
+	// gcc/rustc temp and object files next to the source). When we run as
+	// root (the Docker image), NsjailArgs disables CLONE_NEWUSER and the
+	// jailed process really runs as uid/gid 65534 (not remapped to uid 0
+	// outside), so it needs to actually own this directory. When we're
+	// NOT root (e.g. local/WSL dev as a regular user), nsjail instead uses
+	// its normal unprivileged CLONE_NEWUSER path, which maps the caller's
+	// own real uid into the jail — files we already own are accessible as
+	// they are, and chowning to an arbitrary uid would fail anyway (EPERM).
+	if os.Geteuid() == 0 {
+		if err := os.Chown(dirPath, sandboxUID, sandboxGID); err != nil {
+			return "", fmt.Errorf("chown sandbox dir: %w", err)
+		}
+	}
 	tmpPath := filepath.Join(dirPath, "tmp")
 	if err := os.Mkdir(tmpPath, 0777); err != nil {
 		return "", fmt.Errorf("create tmp dir: %w", err)
 	}
+	// os.Mkdir's mode is masked by the process umask (typically 022), so
+	// the 0777 above usually lands as 0755 (root-writable only) — chmod it
+	// explicitly so the jailed uid 65534 process can actually write temp
+	// files here (rustc, iverilog, etc. all need a writable TMPDIR).
+	if err := os.Chmod(tmpPath, 0777); err != nil {
+		return "", fmt.Errorf("chmod tmp dir: %w", err)
+	}
 	if err := writeMinimalEtc(dirPath); err != nil {
 		return "", fmt.Errorf("create jail etc: %w", err)
 	}
+	succeeded = true
 	return dirPath, nil
 }
 
@@ -368,16 +402,42 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 		"--rlimit_nofile", "64", // max open file descriptors
 		"--rlimit_stack", "64", // max stack: 64 MB
 
-		"--rlimit_as", fmt.Sprintf("%d", clampMinInt(limits.MemoryKB/1024, 1)), // max address space, in MB
+		"--rlimit_as", fmt.Sprintf("%d", rlimitASMB(limits.MemoryKB)), // max address space, in MB
 		"--rlimit_nproc", fmt.Sprintf("%d", clampMinInt(limits.MaxProcesses, 1)), // max processes/threads
 		"--bindmount_ro", "/usr",
 		"--bindmount_ro", "/lib",
 		"--bindmount_ro", "/lib64",
 		"--bindmount_ro", "/bin",
+		// A source of entropy for anything doing crypto/SecureRandom init
+		// (notably the JVM) — narrowly scoped, not the whole host /dev.
+		"--bindmount_ro", "/dev/urandom",
+		"--bindmount_ro", "/dev/null",
 		"--mount", "none:/proc:proc:",
 
 		// Inject safe environment path so compilers/runtimes can find toolchain binaries (e.g. ld)
 		"--env", "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+	}
+	if os.Geteuid() == 0 {
+		// Skip creating a nested user namespace: writing its uid_map/gid_map
+		// and the securebits it needs (CAP_SETUID/SETGID/SETPCAP) require
+		// broader effective privilege than we want to grant the container.
+		// We still drop straight to uid/gid 65534 via setuid/setgid, just
+		// without the extra user-namespace isolation layer; the mount, PID,
+		// net, IPC and UTS namespaces plus the chroot remain fully active.
+		// Only safe/needed when nsjail itself runs as euid 0 (the Docker
+		// image); an unprivileged caller uses nsjail's normal unprivileged
+		// CLONE_NEWUSER path instead, which needs no special capabilities.
+		args = append(args, "--disable_clone_newuser")
+	}
+	// Debian's update-alternatives points toolchain entrypoints (cc, javac,
+	// ...) through /etc/alternatives/*, and OpenJDK's own conf/ is symlinked
+	// into /etc/java-17-openjdk; without these, those symlinks dangle inside
+	// the jail. Just toolchain indirection/config, not host secrets — but
+	// only bind-mount what's actually present on this host/image.
+	for _, etcDir := range []string{"/etc/alternatives", "/etc/java-17-openjdk"} {
+		if _, err := os.Stat(etcDir); err == nil {
+			args = append(args, "--bindmount_ro", etcDir)
+		}
 	}
 	if nsjailCgroupWorks() {
 		args = append(args,
@@ -388,6 +448,23 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 
 	args = append(args, "--", userCmd)
 	return append(args, userArgs...)
+}
+
+// rlimitASMB converts a language's configured "real" memory budget into a
+// virtual-address-space rlimit, in MB. RLIMIT_AS bounds virtual memory, not
+// resident/physical memory, and runtimes like V8 (node) and the JVM reserve
+// large virtual ranges up front regardless of actual usage (e.g. plain
+// `node -e "1"` needs >512MB of address space just to start). So this is a
+// coarse backstop against truly pathological allocation/fork-bomb-style
+// virtual memory abuse when cgroups aren't available — not a precise cap;
+// precise physical-memory enforcement is cgroup_mem_max's job when it works.
+func rlimitASMB(memoryKB int) int {
+	const floorMB = 1536
+	mb := (memoryKB / 1024) * 4
+	if mb < floorMB {
+		return floorMB
+	}
+	return mb
 }
 
 func clampMinInt(value, min int) int {

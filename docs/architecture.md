@@ -153,10 +153,12 @@ client disconnects while waiting, `ctx.Done()` fires and the goroutine exits
 without consuming a slot.
 
 **4. Create sandbox directory.**
-`createSandboxDir()` creates `/tmp/goboxd-jails/<pid>-<counter>/` at mode
-`0700`. The counter is an `atomic.Uint64` — unique within the process,
-no retries, no races. A `tmp/` subdirectory is created inside for compilers
-that need it (`javac`, `rustc`). Closes security hole #5.
+`createSandboxDir()` creates `<NSJAIL_BASE_DIR>/<request-id>/`, where
+`request-id` is the per-request UUID assigned by the `RequestID` middleware —
+unique across the process, no retries, no races. The directory is owned by
+the jailed uid/gid (65534) so the sandboxed process can write directly into
+its own chroot root. A `tmp/` subdirectory is created inside for compilers
+that need it (`javac`, `rustc`, `iverilog`). Closes security hole #5.
 
 **5. Write source file.**
 `os.WriteFile(filepath.Join(sandboxDir, sourceFilename), …, 0644)`.
@@ -283,8 +285,7 @@ The only shared state per process is:
 
 - The config (read-only after startup).
 - The semaphore channel.
-- The atomic counters (`jobsTotal`, `jobsFailedInternal`, `inFlight`,
-  `jobCounter`).
+- The atomic counters (`jobsTotal`, `jobsFailedInternal`, `inFlight`).
 
 All of these are safe for concurrent access without a mutex.
 
@@ -348,6 +349,6 @@ Adding a language is a configuration-only change. See
 | 2 | Shell-style directory commands | All filesystem ops use `os` package APIs — no shell ever runs |
 | 3 | Compiler flag injection | Per-language allowlist in YAML; wildcard suffix support for `-std=*` |
 | 4 | No request size limits | `http.MaxBytesReader` at 512 KiB; source cap 256 KiB; stdin cap 64 KiB; test count cap 50 |
-| 5 | UID collisions under load | `pid + atomic.Uint64` counter — unique, no retries, no races |
-| 6 | Unbounded child output | `limitedWriter` caps stdout and stderr at 4 MiB each; excess dropped silently |
+| 5 | UID collisions under load | Per-request UUID from the `RequestID` middleware — unique, no retries, no races |
+| 6 | Unbounded child output | `limitedWriter` caps stdout and stderr at 4 MiB each; excess truncated with a marker appended |
 | 7 | Stale jail directories | `defer os.RemoveAll` on every exit path; `SweepOrphanDirs` at startup |

@@ -55,6 +55,10 @@ The service defines compile and runtime rules in `config/lang.yaml`. The pre-con
 *   **Go 1.25+** (if compiling locally).
 *   **NsJail** (if running locally, must be installed at `/usr/sbin/nsjail` or path set via `NSJAIL_PATH`).
 
+> **Linux only.** `internal/runner` reads Linux-specific fields off `syscall.Rusage`
+> for memory reporting, so `go build`/`go test` only work on Linux (or inside the
+> Docker image). Building on macOS/Windows will fail — use Docker or WSL for local dev.
+
 ---
 
 ## 🚀 Running the Service

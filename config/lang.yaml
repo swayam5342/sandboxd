@@ -1,0 +1,221 @@
+languages:
+  - id: py3
+    name: Python 3
+    source_filename: solution.py
+    source_filename_strategy: fixed
+    check: --version
+    run:
+      cmd: /usr/bin/python3
+      args: ["{{source}}"]
+      limits:
+        wall_time_s: 9
+        memory_kb: 102400
+        max_processes: 100
+
+  - id: bash
+    name: Bash
+    source_filename: solution.sh
+    source_filename_strategy: fixed
+    check: --version
+
+    run:
+      cmd: /bin/bash
+      args: ["{{source}}"]
+      limits:
+        wall_time_s: 9
+        memory_kb: 65536
+        max_processes: 50
+
+  - id: node
+    name: JavaScript (Node)
+    source_filename: solution.js
+    source_filename_strategy: fixed
+    check: --version
+
+    run:
+      cmd: /usr/bin/node
+      args: ["{{source}}"]
+      limits:
+        wall_time_s: 9
+        memory_kb: 262144
+        max_processes: 100
+
+  - id: c
+    name: C
+    source_filename: solution.c
+    source_filename_strategy: fixed
+    artifact_filename: solution
+    artifact_filename_strategy: fixed
+    check: --version
+    build:
+      cmd: /usr/bin/gcc
+      args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
+      limits:
+        wall_time_s: 10
+        memory_kb: 524288
+        max_processes: 100
+      flag_allowlist:
+        - "-O0"
+        - "-O1"
+        - "-O2"
+        - "-O3"
+        - "-Wall"
+        - "-Wextra"
+        - "-Werror"
+        - "-std=*"
+        - "-lm"
+        - "-lpthread"
+
+    run:
+      cmd: "{{artifact}}"
+      args: []
+      limits:
+        wall_time_s: 5
+        memory_kb: 262144
+        max_processes: 64
+
+  - id: cpp
+    name: C++
+    source_filename: solution.cpp
+    source_filename_strategy: fixed
+    artifact_filename: solution
+    artifact_filename_strategy: fixed
+    check: --version
+
+    build:
+      cmd: /usr/bin/g++
+      args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
+      limits:
+        wall_time_s: 10
+        memory_kb: 1048576
+        max_processes: 100
+      flag_allowlist:
+        - "-O0"
+        - "-O1"
+        - "-O2"
+        - "-O3"
+        - "-Wall"
+        - "-Wextra"
+        - "-Werror"
+        - "-std=*"
+        - "-lm"
+        - "-lpthread"
+    run:
+      cmd: "{{artifact}}"
+      args: []
+      limits:
+        wall_time_s: 5
+        memory_kb: 524288
+        max_processes: 64
+
+  - id: java
+    name: Java
+    source_filename_strategy: from_request
+    artifact_filename_strategy: from_request
+    check: --version
+
+    build:
+      cmd: /usr/bin/javac
+      # -J-Xmx caps javac's own JVM heap so it doesn't ergonomically size
+      # itself off the host's visible RAM (which our jail can't hide) and
+      # blow past the process's rlimit_as virtual-memory budget. Compressed
+      # class pointers reserve a fixed 1GB address-space region regardless
+      # of heap size, which alone can exceed that budget; disable it.
+      args:
+        [
+          "-J-Xmx384m",
+          "-J-XX:-UseCompressedClassPointers",
+          "{{flags}}",
+          "{{source}}",
+        ]
+      limits:
+        wall_time_s: 15
+        memory_kb: 524288
+        max_processes: 100
+      flag_allowlist:
+        - "-g"
+        - "-nowarn"
+        - "-verbose"
+        - "-source=*"
+        - "-target=*"
+    run:
+      cmd: /usr/bin/java
+      # Same reasoning as -J-Xmx above, for the program's own JVM.
+      args:
+        [
+          "-Xmx256m",
+          "-XX:-UseCompressedClassPointers",
+          "-cp",
+          "{{workdir}}",
+          "{{artifact}}",
+        ]
+      limits:
+        wall_time_s: 10
+        memory_kb: 524288
+        max_processes: 100
+
+  - id: verilog
+    name: Verilog
+    source_filename: solution.v
+    source_filename_strategy: fixed
+    artifact_filename: solution.vvp
+    artifact_filename_strategy: fixed
+    check: -V
+
+    build:
+      cmd: /usr/bin/iverilog
+      args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
+      limits:
+        wall_time_s: 10
+        memory_kb: 262144
+        max_processes: 100
+      flag_allowlist:
+        - "-g2012"
+        - "-Wall"
+        - "-Winfloop"
+        - "-DTEST"
+
+    run:
+      cmd: /usr/bin/vvp
+      args: ["{{artifact}}"]
+      limits:
+        wall_time_s: 5
+        memory_kb: 131072
+        max_processes: 64
+  - id: rust
+    name: Rust
+    source_filename: solution.rs
+    source_filename_strategy: fixed
+    artifact_filename: solution
+    artifact_filename_strategy: fixed
+    check: "--version"
+    build:
+      cmd: /usr/bin/rustc
+      args: ["{{flags}}", "-o", "{{artifact}}", "{{source}}"]
+      limits:
+        wall_time_s: 30 # Rust compilation is slower than C/C++
+        memory_kb: 2097152 # 2GB - Rust compiler is memory-hungry
+        max_processes: 100
+      flag_allowlist:
+        - "-O" # Optimize (equivalent to -C opt-level=2)
+        - "-C*" # Codegen options: -C opt-level=3, -C debuginfo, etc.
+        - "-g" # Include debug symbols
+        - "--crate-type=*" # bin, lib, etc.
+        - "--edition=*" # 2018, 2021, 2024
+        - "-A*" # Allow lints: -A warnings
+        - "-D*" # Deny lints: -D warnings
+        - "-W*" # Warn lints: -W unused-variables
+        - "--cap-lints=*" # Cap lint levels
+        - "--target=*" # Target triple (if cross-compilation needed)
+        # Security: Explicitly deny unsafe code if desired
+        # "-Funsafe-code"        # Forbid unsafe (requires nightly)
+        # "-Z"                   # Unstable options - NOT allowed for security
+        # "--cfg=*"              # Conditional compilation - potentially dangerous
+        # "--extern=*"           # External crates - not allowed in sandbox
+    run:
+      cmd: "{{artifact}}"
+      args: []
+      limits:
+        wall_time_s: 5
+        memory_kb: 262144 # 256MB runtime memory
+        max_processes: 64

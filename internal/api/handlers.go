@@ -121,7 +121,7 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if apiErr := validator.ValidateRunRequest(&req, h.cfg.KnownLanguages, h.cfg.AllowedFlags); apiErr != nil {
+	if apiErr := validator.ValidateRunRequest(&req, h.cfg.KnownLanguages, h.cfg.AllowedBuildFlags, h.cfg.AllowedRunFlags); apiErr != nil {
 		writeError(w, http.StatusBadRequest, *apiErr)
 		return
 	}
@@ -132,6 +132,13 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, models.APIError{
 			Code:    models.ErrMissingField,
 			Message: "source_filename is required for language: " + lang.ID,
+		})
+		return
+	}
+	if lang.ArtifactFilenameStrategy == "from_request" && artifactFilename == "" {
+		writeError(w, http.StatusBadRequest, models.APIError{
+			Code:    models.ErrMissingField,
+			Message: "artifact_filename is required for language: " + lang.ID,
 		})
 		return
 	}

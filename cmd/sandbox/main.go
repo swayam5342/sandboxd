@@ -25,14 +25,25 @@ var (
 )
 
 func main() {
-	os.MkdirAll("log", os.ModePerm)
-	file1, _ := os.OpenFile("log/app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	multiWriter := io.MultiWriter(os.Stdout, file1)
+	mkdirErr := os.MkdirAll("log", os.ModePerm)
+	logFile, openErr := os.OpenFile("log/app.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logWriter := io.Writer(os.Stdout)
+	if openErr == nil {
+		logWriter = io.MultiWriter(os.Stdout, logFile)
+	}
 	logger := logger.New(models.LoggerConfig{
 		Level:  util.EnvOr("LOG_LEVEL", "info"),
 		JSON:   util.EnvOr("LOG_JSON", "true") == "true",
-		Output: multiWriter,
+		Output: logWriter,
 	})
+	if openErr == nil {
+		defer logFile.Close()
+	}
+	if mkdirErr != nil {
+		logger.Warn("failed to create log directory, file logging disabled", "error", mkdirErr)
+	} else if openErr != nil {
+		logger.Warn("failed to open log file, file logging disabled", "error", openErr)
+	}
 	err := godotenv.Load()
 	if err != nil {
 		logger.Error("Error loading .env file")
@@ -112,6 +123,7 @@ func main() {
 	go func() {
 		if err := srv.ListenAndServe(); err != nil &&
 			!errors.Is(err, http.ErrServerClosed) {
+			logger.Error("server failed to start", "error", err)
 			os.Exit(1)
 		}
 	}()
@@ -125,6 +137,7 @@ func main() {
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("graceful shutdown failed", "error", err)
 		os.Exit(1)
 	}
 }

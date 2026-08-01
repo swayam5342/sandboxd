@@ -17,7 +17,7 @@ var (
 	MaxFilenameLen = util.EnvIntOr("MAX_FILENAME_CHAR", 65)
 )
 
-func ValidateRunRequest(req *models.RunRequest, knownLanguages map[string]bool, allowedFlags map[string][]string) *models.APIError {
+func ValidateRunRequest(req *models.RunRequest, knownLanguages map[string]bool, allowedBuildFlags, allowedRunFlags map[string][]string) *models.APIError {
 
 	if err := validateLanguage(req.Language, knownLanguages); err != nil {
 		return err
@@ -38,14 +38,13 @@ func ValidateRunRequest(req *models.RunRequest, knownLanguages map[string]bool, 
 	if err := validateTests(req.Tests); err != nil {
 		return err
 	}
-	langAllowedFlags := allowedFlags[req.Language]
 	if req.Build != nil && len(req.Build.Flags) > 0 {
-		if err := ValidateFlags(req.Build.Flags, langAllowedFlags); err != nil {
+		if err := ValidateFlags(req.Build.Flags, allowedBuildFlags[req.Language]); err != nil {
 			return err
 		}
 	}
 	if req.Run != nil && len(req.Run.Flags) > 0 {
-		if err := ValidateFlags(req.Run.Flags, langAllowedFlags); err != nil {
+		if err := ValidateFlags(req.Run.Flags, allowedRunFlags[req.Language]); err != nil {
 			return err
 		}
 	}
