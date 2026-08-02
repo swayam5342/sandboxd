@@ -17,7 +17,7 @@ var (
 	MaxFilenameLen = util.EnvIntOr("MAX_FILENAME_CHAR", 65)
 )
 
-func ValidateRunRequest(req *models.RunRequest, knownLanguages map[string]bool, allowedBuildFlags, allowedRunFlags map[string][]string) *models.APIError {
+func ValidateRunRequest(req *models.RunRequest, knownLanguages map[string]bool, allowedBuildFlags, allowedRunFlags, deniedBuildFlags, deniedRunFlags map[string][]string) *models.APIError {
 
 	if err := validateLanguage(req.Language, knownLanguages); err != nil {
 		return err
@@ -39,12 +39,12 @@ func ValidateRunRequest(req *models.RunRequest, knownLanguages map[string]bool, 
 		return err
 	}
 	if req.Build != nil && len(req.Build.Flags) > 0 {
-		if err := ValidateFlags(req.Build.Flags, allowedBuildFlags[req.Language]); err != nil {
+		if err := ValidateFlags(req.Build.Flags, allowedBuildFlags[req.Language], deniedBuildFlags[req.Language]); err != nil {
 			return err
 		}
 	}
 	if req.Run != nil && len(req.Run.Flags) > 0 {
-		if err := ValidateFlags(req.Run.Flags, allowedRunFlags[req.Language]); err != nil {
+		if err := ValidateFlags(req.Run.Flags, allowedRunFlags[req.Language], deniedRunFlags[req.Language]); err != nil {
 			return err
 		}
 	}
@@ -136,9 +136,15 @@ func ValidateFilename(filename string) *models.APIError {
 	return nil
 }
 
-func ValidateFlags(flags []string, allowlist []string) *models.APIError {
+func ValidateFlags(flags []string, allowlist, denylist []string) *models.APIError {
 	for _, flag := range flags {
-		if !isFlagAllowed(flag, allowlist) {
+		if matchesAny(flag, denylist) {
+			return &models.APIError{
+				Code:    models.ErrDeniedFlag,
+				Message: fmt.Sprintf("flag %q is explicitly denied for this language", flag),
+			}
+		}
+		if !matchesAny(flag, allowlist) {
 			return &models.APIError{
 				Code:    models.ErrDisallowedFlag,
 				Message: fmt.Sprintf("flag %q is not on the allowlist for this language", flag),
@@ -148,18 +154,15 @@ func ValidateFlags(flags []string, allowlist []string) *models.APIError {
 	return nil
 }
 
-func isFlagAllowed(flag string, allowlist []string) bool {
-	for _, allowed := range allowlist {
-		if strings.HasSuffix(allowed, "*") {
+func matchesAny(flag string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
 			// Wildcard: check that the flag starts with the prefix before "*"
-			prefix := strings.TrimSuffix(allowed, "*")
 			if strings.HasPrefix(flag, prefix) {
 				return true
 			}
-		} else {
-			if flag == allowed {
-				return true
-			}
+		} else if flag == pattern {
+			return true
 		}
 	}
 	return false

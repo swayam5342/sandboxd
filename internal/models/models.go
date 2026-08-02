@@ -115,6 +115,7 @@ const (
 	ErrSourceTooLarge  = "source_too_large"
 	ErrTooManyTests    = "too_many_tests"
 	ErrDisallowedFlag  = "disallowed_flag"
+	ErrDeniedFlag      = "denied_flag"
 	ErrInvalidJSON     = "invalid_json"
 	ErrMissingField    = "missing_field"
 	ErrInternalError   = "internal_error"

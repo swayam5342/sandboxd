@@ -121,7 +121,7 @@ func (h *Handler) Run(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if apiErr := validator.ValidateRunRequest(&req, h.cfg.KnownLanguages, h.cfg.AllowedBuildFlags, h.cfg.AllowedRunFlags); apiErr != nil {
+	if apiErr := validator.ValidateRunRequest(&req, h.cfg.KnownLanguages, h.cfg.AllowedBuildFlags, h.cfg.AllowedRunFlags, h.cfg.DeniedBuildFlags, h.cfg.DeniedRunFlags); apiErr != nil {
 		writeError(w, http.StatusBadRequest, *apiErr)
 		return
 	}

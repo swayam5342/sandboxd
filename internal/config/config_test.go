@@ -51,6 +51,8 @@ languages:
       flag_allowlist:
         - "-O0"
         - "-std=*"
+      flag_denylist:
+        - "-include*"
     run:
       cmd: "{{artifact}}"
       args: []
@@ -226,6 +228,20 @@ func TestLoad_BuildAndRunFlagAllowlistsAreSeparate(t *testing.T) {
 	}
 	if slices.Contains(runFlags, "-O0") {
 		t.Error("run allowlist must not include build-only flags")
+	}
+}
+
+func TestLoad_FlagDenylistLoaded(t *testing.T) {
+	path := writeTempConfig(t, validYAML)
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile() error: %v", err)
+	}
+	if !slices.Contains(cfg.DeniedBuildFlags["c"], "-include*") {
+		t.Errorf("expected -include* in denied build flags, got %v", cfg.DeniedBuildFlags["c"])
+	}
+	if len(cfg.DeniedRunFlags["c"]) != 0 {
+		t.Errorf("expected no denied run flags for c (none configured), got %v", cfg.DeniedRunFlags["c"])
 	}
 }
 

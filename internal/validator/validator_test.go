@@ -22,7 +22,7 @@ func knownLangs() map[string]bool {
 // --- ValidateRunRequest ---
 
 func TestValidateRunRequest_Valid(t *testing.T) {
-	if err := ValidateRunRequest(validReq(), knownLangs(), nil, nil); err != nil {
+	if err := ValidateRunRequest(validReq(), knownLangs(), nil, nil, nil, nil); err != nil {
 		t.Fatalf("expected no error, got %+v", err)
 	}
 }
@@ -30,7 +30,7 @@ func TestValidateRunRequest_Valid(t *testing.T) {
 func TestValidateRunRequest_MissingLanguage(t *testing.T) {
 	req := validReq()
 	req.Language = ""
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrMissingField {
 		t.Fatalf("want ErrMissingField, got %+v", err)
 	}
@@ -39,7 +39,7 @@ func TestValidateRunRequest_MissingLanguage(t *testing.T) {
 func TestValidateRunRequest_UnknownLanguage(t *testing.T) {
 	req := validReq()
 	req.Language = "cobol"
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrUnknownLanguage {
 		t.Fatalf("want ErrUnknownLanguage, got %+v", err)
 	}
@@ -48,7 +48,7 @@ func TestValidateRunRequest_UnknownLanguage(t *testing.T) {
 func TestValidateRunRequest_MissingSource(t *testing.T) {
 	req := validReq()
 	req.Source = ""
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrMissingField {
 		t.Fatalf("want ErrMissingField, got %+v", err)
 	}
@@ -61,7 +61,7 @@ func TestValidateRunRequest_SourceTooLarge(t *testing.T) {
 
 	req := validReq()
 	req.Source = strings.Repeat("x", 11)
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrSourceTooLarge {
 		t.Fatalf("want ErrSourceTooLarge, got %+v", err)
 	}
@@ -70,7 +70,7 @@ func TestValidateRunRequest_SourceTooLarge(t *testing.T) {
 func TestValidateRunRequest_BadSourceFilename(t *testing.T) {
 	req := validReq()
 	req.SourceFilename = "../etc/passwd"
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrInvalidFilename {
 		t.Fatalf("want ErrInvalidFilename, got %+v", err)
 	}
@@ -79,7 +79,7 @@ func TestValidateRunRequest_BadSourceFilename(t *testing.T) {
 func TestValidateRunRequest_BadArtifactFilename(t *testing.T) {
 	req := validReq()
 	req.ArtifactFilename = "/etc/passwd"
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrInvalidFilename {
 		t.Fatalf("want ErrInvalidFilename, got %+v", err)
 	}
@@ -88,7 +88,7 @@ func TestValidateRunRequest_BadArtifactFilename(t *testing.T) {
 func TestValidateRunRequest_NoTests(t *testing.T) {
 	req := validReq()
 	req.Tests = nil
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrMissingField {
 		t.Fatalf("want ErrMissingField, got %+v", err)
 	}
@@ -101,7 +101,7 @@ func TestValidateRunRequest_TooManyTests(t *testing.T) {
 
 	req := validReq()
 	req.Tests = []models.TestInput{{}, {}, {}}
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrTooManyTests {
 		t.Fatalf("want ErrTooManyTests, got %+v", err)
 	}
@@ -114,7 +114,7 @@ func TestValidateRunRequest_StdinTooLarge(t *testing.T) {
 
 	req := validReq()
 	req.Tests = []models.TestInput{{Stdin: strings.Repeat("x", 6)}}
-	err := ValidateRunRequest(req, knownLangs(), nil, nil)
+	err := ValidateRunRequest(req, knownLangs(), nil, nil, nil, nil)
 	if err == nil || err.Code != models.ErrSourceTooLarge {
 		t.Fatalf("want ErrSourceTooLarge, got %+v", err)
 	}
@@ -124,7 +124,7 @@ func TestValidateRunRequest_BuildFlagDisallowed(t *testing.T) {
 	req := validReq()
 	req.Build = &models.PhaseInput{Flags: []string{"-not-allowed"}}
 	buildFlags := map[string][]string{"py3": {"-O0"}}
-	err := ValidateRunRequest(req, knownLangs(), buildFlags, nil)
+	err := ValidateRunRequest(req, knownLangs(), buildFlags, nil, nil, nil)
 	if err == nil || err.Code != models.ErrDisallowedFlag {
 		t.Fatalf("want ErrDisallowedFlag, got %+v", err)
 	}
@@ -134,7 +134,7 @@ func TestValidateRunRequest_RunFlagDisallowed(t *testing.T) {
 	req := validReq()
 	req.Run = &models.PhaseInput{Flags: []string{"-not-allowed"}}
 	runFlags := map[string][]string{"py3": {"-safe"}}
-	err := ValidateRunRequest(req, knownLangs(), nil, runFlags)
+	err := ValidateRunRequest(req, knownLangs(), nil, runFlags, nil, nil)
 	if err == nil || err.Code != models.ErrDisallowedFlag {
 		t.Fatalf("want ErrDisallowedFlag, got %+v", err)
 	}
@@ -149,13 +149,25 @@ func TestValidateRunRequest_BuildAndRunFlagsUseSeparateAllowlists(t *testing.T) 
 	buildFlags := map[string][]string{"py3": {"-build-only"}}
 	runFlags := map[string][]string{"py3": {"-run-only"}}
 
-	if err := ValidateRunRequest(req, knownLangs(), buildFlags, runFlags); err != nil {
+	if err := ValidateRunRequest(req, knownLangs(), buildFlags, runFlags, nil, nil); err != nil {
 		t.Fatalf("expected both flags to validate against their own allowlist, got %+v", err)
 	}
 
 	req.Run = &models.PhaseInput{Flags: []string{"-build-only"}}
-	if err := ValidateRunRequest(req, knownLangs(), buildFlags, runFlags); err == nil {
+	if err := ValidateRunRequest(req, knownLangs(), buildFlags, runFlags, nil, nil); err == nil {
 		t.Fatal("expected -build-only to be rejected for the run phase")
+	}
+}
+
+func TestValidateRunRequest_DenylistOverridesAllowlist(t *testing.T) {
+	req := validReq()
+	req.Run = &models.PhaseInput{Flags: []string{"-C linker=/bin/sh"}}
+	runAllow := map[string][]string{"py3": {"-C*"}}
+	runDeny := map[string][]string{"py3": {"-C linker=*"}}
+
+	err := ValidateRunRequest(req, knownLangs(), nil, runAllow, nil, runDeny)
+	if err == nil || err.Code != models.ErrDeniedFlag {
+		t.Fatalf("want ErrDeniedFlag, got %+v", err)
 	}
 }
 
@@ -203,29 +215,29 @@ func TestValidateFilename_DisallowedCharacters(t *testing.T) {
 	}
 }
 
-// --- ValidateFlags / isFlagAllowed ---
+// --- ValidateFlags / matchesAny ---
 
 func TestValidateFlags_ExactMatch(t *testing.T) {
-	if err := ValidateFlags([]string{"-O2"}, []string{"-O2", "-Wall"}); err != nil {
+	if err := ValidateFlags([]string{"-O2"}, []string{"-O2", "-Wall"}, nil); err != nil {
 		t.Errorf("expected -O2 to be allowed, got %+v", err)
 	}
 }
 
 func TestValidateFlags_NotAllowed(t *testing.T) {
-	err := ValidateFlags([]string{"-fsanitize=address"}, []string{"-O2"})
+	err := ValidateFlags([]string{"-fsanitize=address"}, []string{"-O2"}, nil)
 	if err == nil || err.Code != models.ErrDisallowedFlag {
 		t.Fatalf("want ErrDisallowedFlag, got %+v", err)
 	}
 }
 
 func TestValidateFlags_Wildcard(t *testing.T) {
-	if err := ValidateFlags([]string{"-std=c11"}, []string{"-std=*"}); err != nil {
+	if err := ValidateFlags([]string{"-std=c11"}, []string{"-std=*"}, nil); err != nil {
 		t.Errorf("expected -std=c11 to match wildcard -std=*, got %+v", err)
 	}
 }
 
 func TestValidateFlags_WildcardDoesNotMatchUnrelatedPrefix(t *testing.T) {
-	err := ValidateFlags([]string{"-standalone"}, []string{"-std=*"})
+	err := ValidateFlags([]string{"-standalone"}, []string{"-std=*"}, nil)
 	// "-standalone" does start with "-std" but not "-std=" — HasPrefix on
 	// "-std=" as the prefix means "-standalone" should NOT match.
 	if err == nil {
@@ -234,16 +246,59 @@ func TestValidateFlags_WildcardDoesNotMatchUnrelatedPrefix(t *testing.T) {
 }
 
 func TestValidateFlags_EmptyAllowlistRejectsEverything(t *testing.T) {
-	err := ValidateFlags([]string{"-anything"}, nil)
+	err := ValidateFlags([]string{"-anything"}, nil, nil)
 	if err == nil {
 		t.Error("expected rejection with empty/nil allowlist")
 	}
 }
 
 func TestValidateFlags_MultipleFlags_AllMustBeAllowed(t *testing.T) {
-	err := ValidateFlags([]string{"-O2", "-not-allowed"}, []string{"-O2"})
+	err := ValidateFlags([]string{"-O2", "-not-allowed"}, []string{"-O2"}, nil)
 	if err == nil {
 		t.Error("expected rejection when any flag in the list is disallowed")
+	}
+}
+
+// --- denylist overrides allowlist ---
+
+func TestValidateFlags_DenylistOverridesExactAllowlistMatch(t *testing.T) {
+	err := ValidateFlags([]string{"-O2"}, []string{"-O2"}, []string{"-O2"})
+	if err == nil || err.Code != models.ErrDeniedFlag {
+		t.Fatalf("want ErrDeniedFlag even though -O2 is also allowlisted, got %+v", err)
+	}
+}
+
+func TestValidateFlags_DenylistOverridesWildcardAllowlistMatch(t *testing.T) {
+	// This is the real-world case: Rust's "-C*" allowlist wildcard is broad,
+	// but "-C linker=*" within it is dangerous and must stay blocked.
+	err := ValidateFlags(
+		[]string{"-C linker=/bin/sh"},
+		[]string{"-C*"},
+		[]string{"-C linker=*"},
+	)
+	if err == nil || err.Code != models.ErrDeniedFlag {
+		t.Fatalf("want ErrDeniedFlag for a denylisted flag within an allowed wildcard, got %+v", err)
+	}
+}
+
+func TestValidateFlags_DenylistWildcard(t *testing.T) {
+	err := ValidateFlags([]string{"-C link-arg=-shared"}, []string{"-C*"}, []string{"-C link-arg=*"})
+	if err == nil || err.Code != models.ErrDeniedFlag {
+		t.Fatalf("want ErrDeniedFlag, got %+v", err)
+	}
+}
+
+func TestValidateFlags_NonDeniedFlagWithinAllowedWildcardStillPasses(t *testing.T) {
+	// Only the specific denied sub-pattern should be blocked — other flags
+	// matching the same broad allowlist wildcard must still work.
+	if err := ValidateFlags([]string{"-C opt-level=3"}, []string{"-C*"}, []string{"-C linker=*"}); err != nil {
+		t.Errorf("expected -C opt-level=3 to remain allowed, got %+v", err)
+	}
+}
+
+func TestValidateFlags_EmptyDenylist_NoEffect(t *testing.T) {
+	if err := ValidateFlags([]string{"-O2"}, []string{"-O2"}, nil); err != nil {
+		t.Errorf("expected nil/empty denylist to reject nothing, got %+v", err)
 	}
 }
 

@@ -59,6 +59,8 @@ func testConfig(langs ...*config.Language) *config.Config {
 		KnownLanguages:    make(map[string]bool),
 		AllowedBuildFlags: make(map[string][]string),
 		AllowedRunFlags:   make(map[string][]string),
+		DeniedBuildFlags:  make(map[string][]string),
+		DeniedRunFlags:    make(map[string][]string),
 	}
 	for _, l := range langs {
 		cfg.Languages = append(cfg.Languages, *l)

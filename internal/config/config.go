@@ -15,11 +15,13 @@ import (
 )
 
 type Config struct {
-	Languages        []Language
-	LanguagesByID    map[string]*Language
-	KnownLanguages   map[string]bool
+	Languages         []Language
+	LanguagesByID     map[string]*Language
+	KnownLanguages    map[string]bool
 	AllowedBuildFlags map[string][]string
 	AllowedRunFlags   map[string][]string
+	DeniedBuildFlags  map[string][]string
+	DeniedRunFlags    map[string][]string
 }
 
 type Language struct {
@@ -39,6 +41,7 @@ type Phase struct {
 	Args          []string `yaml:"args"`
 	Limits        Limits   `yaml:"limits"`
 	FlagAllowlist []string `yaml:"flag_allowlist"`
+	FlagDenylist  []string `yaml:"flag_denylist"`
 }
 
 type Limits struct {
@@ -71,6 +74,8 @@ func load(data []byte) (*Config, error) {
 		KnownLanguages:    make(map[string]bool, len(raw.Languages)),
 		AllowedBuildFlags: make(map[string][]string, len(raw.Languages)),
 		AllowedRunFlags:   make(map[string][]string, len(raw.Languages)),
+		DeniedBuildFlags:  make(map[string][]string, len(raw.Languages)),
+		DeniedRunFlags:    make(map[string][]string, len(raw.Languages)),
 	}
 	for i := range cfg.Languages {
 		lang := &cfg.Languages[i]
@@ -81,8 +86,10 @@ func load(data []byte) (*Config, error) {
 		cfg.KnownLanguages[lang.ID] = true
 		if lang.Build != nil {
 			cfg.AllowedBuildFlags[lang.ID] = lang.Build.FlagAllowlist
+			cfg.DeniedBuildFlags[lang.ID] = lang.Build.FlagDenylist
 		}
 		cfg.AllowedRunFlags[lang.ID] = lang.Run.FlagAllowlist
+		cfg.DeniedRunFlags[lang.ID] = lang.Run.FlagDenylist
 	}
 	return cfg, nil
 }
