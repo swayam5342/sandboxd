@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes how `goboxd` is put together: the moving parts, the
+This document describes how `sandboxd` is put together: the moving parts, the
 lifecycle of a single request, and the configuration model that drives
 per-language behaviour.
 
@@ -17,24 +17,27 @@ registry, and aggregating the results.
 ```text
                 ┌─────────────────────────────────────────────────┐
  HTTP POST  ──> │  chi Router (internal/api)                      │
-   /run         │   └── Handler.Run()                             │
-                │         ├── ValidateRunRequest()                │
-                │         └── runner.Run()                        │
-                │               ├── semaphore acquire             │
-                │               ├── createSandboxDir()            │
-                │               ├── os.WriteFile() source         │
-                │               ├── runPhase() [build, if any]    │
-                │               ├── runPhase() × N [per testcase] │
-                │               └── os.RemoveAll() cleanup        │
+   /run         │   └── RequireAPIKey() [if API_KEY is set]       │
+                │         └── Handler.Run()                       │
+                │               ├── ValidateRunRequest()          │
+                │               └── runner.Run()                  │
+                │                     ├── semaphore acquire       │
+                │                     ├── createSandboxDir()      │
+                │                     ├── os.WriteFile() source   │
+                │                     ├── runPhase() [build, if any] │
+                │                     ├── runPhase() × N [per testcase] │
+                │                     └── os.RemoveAll() cleanup  │
                 └──────────────────────┬──────────────────────────┘
                                        │ exec.Command
                                       \ /
                        ┌──────────────────────────────────┐
                        │  nsjail (Linux namespaces)       │
-                       │   ├── user / pid / mount / net ns│
+                       │   ├── pid / mount / net ns       │
+                       │   │   (+ user ns, if unprivileged)│
                        │   ├── chroot to sandbox dir      │
                        │   ├── rlimit_fsize / nofile /    │
-                       │   │   stack + optional cgroup v2 │
+                       │   │   stack / as / nproc         │
+                       │   │   + optional cgroup v2       │
                        │   └── exec compiler / runtime    │
                        └──────────────────────────────────┘
 ```
@@ -43,32 +46,42 @@ registry, and aggregating the results.
 
 ## Components
 
-### `cmd/goboxd/`
+### `cmd/sandbox/`
 
-Entry point. `main.go` does four things in order:
+Entry point. `main.go` does the following, in order:
 
-1. Loads `configs/languages.yaml` via `config.LoadFile()`.
-2. Runs startup probes — nsjail binary present, every language toolchain
+1. Sets up logging (`log/slog` via `internal/loger`), writing to both stdout
+   and `log/app.log` (falling back to stdout-only, with a warning, if the log
+   directory/file can't be created).
+2. Loads `config/lang.yaml` (path overridable via `LANG_CONFIG`) via
+   `config.LoadFile()`.
+3. Reads `API_KEY` from the environment; logs a startup warning if it's
+   unset, since that leaves `POST /run` unauthenticated.
+4. Runs startup probes — nsjail binary present, every language toolchain
    reachable. Exits immediately with a clear error if anything is missing.
-3. Calls `runner.SweepOrphanDirs()` to clean up sandbox directories left by
+5. Calls `runner.SweepOrphanDirs()` to clean up sandbox directories left by
    any previous crashed run.
-4. Starts the HTTP server with graceful shutdown on `SIGINT`/`SIGTERM`.
+6. Starts the HTTP server with graceful shutdown on `SIGINT`/`SIGTERM`.
 
 ### `internal/api/`
 
 The HTTP layer. Three files:
 
-- **`router.go`** — Wires routes to handlers. Applies middleware in order:
-  `RecoverPanic → RequestID → Logger → CleanPath → MaxBodySize`.
-- **`handler.go`** — Four handlers: `Healthz`, `Readyz`, `Info`, `Run`.
+- **`router.go`** — Wires routes to handlers. Global middleware, in order:
+  `RecoverPanic → RequestID → Logger → CleanPath → MaxBodySize`. `RequireAPIKey`
+  is applied only to `POST /run`, not globally — `/healthz`, `/readyz`, and
+  `/info` stay unauthenticated.
+- **`handlers.go`** — Four handlers: `Healthz`, `Readyz`, `Info`, `Run`.
   Handlers decode JSON, call the validator, build a `runner.Job`, and write
   the response. They never touch nsjail directly.
-- **`middleware.go`** — `RequestID` injects a UUID per request.
-  `MaxBodySize` wraps the request body with `http.MaxBytesReader` (512 KiB)
-  before JSON decoding begins — this closes security hole #4 at the HTTP
-  layer. `Logger` writes one structured JSON line per request via `log/slog`.
-  `RecoverPanic` catches any handler panic and returns a 500 without leaking
-  internals.
+- **`middleware.go`** — `RequestID` injects a UUID per request (used as the
+  sandbox directory name, see below). `RequireAPIKey` is a no-op when
+  `API_KEY` is empty; otherwise it requires `Authorization: Bearer <API_KEY>`
+  (constant-time compared) and returns `401` with `{"error":{"code":"unauthorized",...}}`
+  on a mismatch. `MaxBodySize` wraps the request body with
+  `http.MaxBytesReader` (512 KiB) before JSON decoding begins. `Logger` writes
+  one structured JSON line per request via `log/slog`. `RecoverPanic` catches
+  any handler panic and returns a 500 without leaking internals.
 
 ### `internal/validator/`
 
@@ -78,9 +91,11 @@ execution begins. Covers:
 - Language existence check against `cfg.KnownLanguages`.
 - Source size cap (`MaxSourceBytes = 256 KiB`).
 - Filename safety: `filepath.Base` check, no path separators, no leading
-  dot, character allowlist, length cap. Closes security hole #1.
-- Flag allowlist: per-language list from YAML, wildcard suffix support
-  (`-std=*`). Closes security hole #3.
+  dot, character allowlist, length cap.
+- Flag allowlist **and** denylist, checked separately for the build and run
+  phases (`ValidateFlags(flags, allowlist, denylist)` — a deny match always
+  wins, even over an allowlist wildcard match). Wildcard suffix support
+  (`-std=*`, `-C*`, ...) for both lists via a shared `matchesAny` helper.
 - Test count cap (`MaxTests = 50`) and per-stdin size cap.
 - `CompareOutput`: exact match → `accepted`; match after `strings.TrimSpace`
   → `output_whitespace_mismatch`; otherwise → `wrong_output`.
@@ -89,17 +104,27 @@ execution begins. Covers:
 
 ### `internal/config/`
 
-Language registry. `LoadFile` reads `configs/languages.yaml`, unmarshals it
-into `[]Language`, validates each entry (required fields, strategy values,
-cmd presence), and builds three derived maps used at request time:
+Language registry. `LoadFile` reads `config/lang.yaml`, unmarshals it into
+`[]Language`, validates each entry (required fields, strategy values, cmd
+presence), and builds five derived maps used at request time:
 
 - `LanguagesByID map[string]*Language` — O(1) lookup by id.
 - `KnownLanguages map[string]bool` — fed to the validator.
-- `AllowedFlags map[string][]string` — fed to the validator, merged from
-  both the build and run phase allowlists.
+- `AllowedBuildFlags` / `AllowedRunFlags map[string][]string` — each
+  language's build-phase and run-phase `flag_allowlist`, kept **separate**
+  (a flag allowed for build is not automatically allowed for run).
+- `DeniedBuildFlags` / `DeniedRunFlags map[string][]string` — the
+  corresponding `flag_denylist` pair.
 
-`ProbeLanguage` and `ProbeNsjail` run `--version` on each binary at startup
-and when `/readyz` is called.
+`mergeLimits`/`clampOverride` apply a client's `build.limits`/`run.limits`
+override on top of a language's YAML defaults: any override is clamped into
+`[1, default]` — a client can only tighten a limit, never loosen or disable
+one (sending `0`/negative clamps to `1`; sending above the default clamps
+down to the default).
+
+`ProbeLanguage` and `ProbeNsjail` run `--version` (or the language's
+configured `check` argument) on each binary, bounded by a 5-second timeout
+per call, at startup and whenever `/info`/`/readyz` is called.
 
 ### `internal/runner/`
 
@@ -111,8 +136,9 @@ semaphore slot (blocking if at capacity, aborting on context cancellation),
 increments the counter, calls `execute()`, and releases the slot in a
 `defer`.
 
-**`sandbox.go`** — `execute()` and all sandbox mechanics. See the request
-lifecycle section below for the step-by-step.
+**`sandbox.go`** — `execute()` and all sandbox mechanics: `createSandboxDir`,
+`NsjailArgs`, `expandArgs`, `mapExitStatus`, `SweepOrphanDirs`. See the
+request lifecycle section below for the step-by-step.
 
 ### `internal/models/`
 
@@ -121,11 +147,21 @@ imports this; keeping it logic-free prevents circular imports. All status
 strings (`accepted`, `build_failed`, `runtime_error`, …) are declared as
 constants here — never as raw strings elsewhere.
 
-### `configs/languages.yaml`
+### `config/lang.yaml`
 
 The single file that defines every supported language. Adding a language
 requires editing only this file — no Go code change. See
 [docs/languages.md](languages.md) for the full format and a walkthrough.
+
+### `internal/sandbox/` (not yet wired in)
+
+A separate, provider-agnostic sandbox abstraction (`Provider`/`Sandbox`
+interfaces, a factory/registry for selecting an implementation by name, and
+a fully in-memory `providers/mock` reference implementation). It exists as a
+foundation for future pluggable execution backends and is currently
+self-contained — nothing in `internal/api`/`internal/runner` depends on it,
+and it has no knowledge of nsjail. See the package's own doc comment
+(`internal/sandbox/doc.go`) for the design.
 
 ---
 
@@ -155,10 +191,20 @@ without consuming a slot.
 **4. Create sandbox directory.**
 `createSandboxDir()` creates `<NSJAIL_BASE_DIR>/<request-id>/`, where
 `request-id` is the per-request UUID assigned by the `RequestID` middleware —
-unique across the process, no retries, no races. The directory is owned by
-the jailed uid/gid (65534) so the sandboxed process can write directly into
-its own chroot root. A `tmp/` subdirectory is created inside for compilers
-that need it (`javac`, `rustc`, `iverilog`). Closes security hole #5.
+unique across the process, no retries, no races. If `createSandboxDir` fails
+partway through, it cleans up the partially-built directory itself before
+returning (the caller's own `defer os.RemoveAll` only gets registered after
+a *successful* return). When the server runs as root (the Docker image), the
+directory is `chown`'d to the jailed uid/gid (65534) so the sandboxed
+process — which drops privileges via direct `setuid`/`setgid` rather than a
+user namespace in that case, see [docs/security.md](security.md) — can write
+directly into its own chroot root; when running unprivileged, no chown is
+needed or attempted (would fail with `EPERM` anyway). A `tmp/` subdirectory
+is created inside for compilers that need it (`javac`, `rustc`, `iverilog`),
+explicitly `chmod`'d to `0777` since `os.Mkdir`'s mode argument is masked by
+the process umask. A synthetic `/etc` (`passwd`, `group`, `nsswitch.conf`,
+`hosts`) is also written here — see [docs/security.md](security.md) for why.
+Closes security hole #5.
 
 **5. Write source file.**
 `os.WriteFile(filepath.Join(sandboxDir, sourceFilename), …, 0644)`.
@@ -175,8 +221,11 @@ response is returned immediately with `build_failed`.
 **7. Run phase — one nsjail invocation per test case.**
 `runPhase()` is called once per `TestInput` with the test's `Stdin` piped
 in. stdout and stderr are captured through `limitedWriter` (capped at 4 MiB
-each). Closes security hole #6. The result is passed to `CompareOutput`
-to assign the test status.
+each). Closes security hole #6. `mapExitStatus` classifies the result —
+including a duration/memory cross-check to disambiguate nsjail's own
+limit-triggered exit codes from a program's own `exit(2)`/`exit(3)`, see
+[docs/api.md](api.md#status-definitions). If accepted-by-exit-code, the
+result is then passed to `CompareOutput` to assign the final test status.
 
 **8. Aggregate.**
 `TopLevelStatus` derives the envelope status: `accepted` only if every test
@@ -193,7 +242,7 @@ Closes security hole #7.
 
 ## nsjail Command Construction
 
-`buildNsjailArgs` assembles the nsjail invocation for each phase. Key flags:
+`NsjailArgs` assembles the nsjail invocation for each phase. Key flags:
 
 | Flag | Purpose |
 |---|---|
@@ -202,24 +251,31 @@ Closes security hole #7.
 | `--rw` | Read-write chroot (needed to write compiled artifact) |
 | `--cwd /` | Working directory inside the jail |
 | `--user 65534 --group 65534` | Run as unprivileged `nobody` |
+| `--disable_clone_newuser` | Only added when nsjail runs as euid 0 (Docker) — see [docs/security.md](security.md) §1 |
 | `--iface_no_lo` | No loopback — no network access |
 | `--time_limit N` | Wall-clock cap; nsjail sends SIGKILL on expiry |
 | `--rlimit_fsize 128` | Max file write: 128 MB |
 | `--rlimit_nofile 64` | Max open file descriptors |
 | `--rlimit_stack 64` | Max stack size: 64 MB |
-| `--bindmount_ro /usr` | Runtimes, compilers, headers, libc (read-only) |
-| `--bindmount_ro /bin` | `/bin/sh` and shell utilities |
-| `--bindmount_ro /proc` | Required by JVM and some runtimes |
-| `--bindmount_ro /etc` | Dynamic linker cache (`ld.so.cache`) |
-| `--bindmount_ro /lib /lib64` | ELF interpreter path (hardcoded in binaries) |
+| `--rlimit_as N` | Max virtual address space, in MB — always applied (not just as a cgroup fallback); see `rlimitASMB` and [docs/security.md](security.md) §4 |
+| `--rlimit_nproc N` | Max processes/threads — always applied |
+| `--bindmount_ro /usr /lib /lib64 /bin` | Runtimes, compilers, headers, libc (read-only) |
+| `--bindmount_ro /etc/alternatives` | Debian toolchain-entrypoint symlinks (only if present) |
+| `--bindmount_ro /etc/java-*-openjdk` | OpenJDK config symlinks, version-glob'd (only if present) |
+| `--bindmount_ro /dev/urandom /dev/null` | Narrowly-scoped entropy source (JVM `SecureRandom`, etc.) |
+| `--mount none:/proc:proc:` | Fresh procfs scoped to the jail's own PID namespace — **not** a bind-mount of host `/proc` |
 | `--env PATH=…` | Minimal safe PATH inside the jail |
-| `--cgroup_mem_max` | Memory cap (only when cgroup v2 is available) |
-| `--cgroup_pids_max` | PID cap (only when cgroup v2 is available) |
+| `--cgroup_mem_max` | Memory cap (only when cgroup v2 delegation is detected as working) |
+| `--cgroup_pids_max` | PID cap (only when cgroup v2 delegation is detected as working) |
+
+Note what's *not* here: the host's real `/etc` is never bind-mounted (a synthetic one is
+written per-request instead, see [docs/security.md](security.md) §2), and `/proc` is never
+a bind-mount of the host's.
 
 All paths passed to the compiler or runtime inside the jail are
 jail-relative (`/solution.py`, `/solution`) — not host absolute paths.
-`expandArgs` handles the `{{source}}`, `{{artifact}}`, `{{flags}}`, and
-`{{workdir}}` substitutions from YAML.
+`expandArgs` handles the `{{source}}`, `{{artifact}}`, `{{artifact_name}}`,
+`{{flags}}`, and `{{workdir}}` substitutions from YAML.
 
 ---
 
@@ -243,14 +299,15 @@ environments.
 
 ## Configuration Templating
 
-`configs/languages.yaml` uses double-brace placeholders substituted at
+`config/lang.yaml` uses double-brace placeholders substituted at
 request time by `expandArgs` and `runPhase`:
 
 | Placeholder | Value |
 |---|---|
 | `{{source}}` | Jail-relative source path, e.g. `/solution.cpp` |
-| `{{artifact}}` | Jail-relative artifact path, e.g. `/solution` |
-| `{{flags}}` | Client-supplied flags after allowlist check (spliced as separate args) |
+| `{{artifact}}` | Jail-relative artifact **path**, e.g. `/solution` |
+| `{{artifact_name}}` | Bare artifact **filename**, no leading `/`, e.g. `Solution` (used by Java `-cp <dir> <class>`, which needs a name, not a path) |
+| `{{flags}}` | Client-supplied flags after allowlist/denylist check (spliced as separate args) |
 | `{{workdir}}` | Jail working directory `/` (used by Java `-cp`) |
 
 `{{flags}}` splices into multiple separate arguments — not one joined
@@ -308,9 +365,9 @@ All of these are safe for concurrent access without a mutex.
 | `accepted` | stdout matches expected exactly |
 | `output_whitespace_mismatch` | stdout matches after `TrimSpace` |
 | `wrong_output` | stdout does not match |
-| `time_exceeded` | nsjail exit code 2 (wall-clock limit hit) |
-| `memory_exceeded` | nsjail exit code 3 (cgroup memory limit hit) |
-| `runtime_error` | Non-zero exit or killed by signal |
+| `time_exceeded` | nsjail exit code 2, cross-checked against measured duration (see below) |
+| `memory_exceeded` | nsjail exit code 3, cross-checked against measured peak memory (see below) |
+| `runtime_error` | Non-zero exit or killed by signal, not attributable to a resource limit |
 | `not_executed` | Build failed; this test was never run |
 | `internal_error` | OS-level failure running nsjail |
 
@@ -324,7 +381,7 @@ failed.
 
 ## Languages
 
-Languages are declared in `configs/languages.yaml`. At time of writing:
+Languages are declared in `config/lang.yaml`. At time of writing:
 
 | ID | Toolchain | Compiled |
 |---|---|---|
@@ -335,6 +392,7 @@ Languages are declared in `configs/languages.yaml`. At time of writing:
 | `cpp` | `/usr/bin/g++` | yes |
 | `java` | OpenJDK (`javac` + `java`) | yes |
 | `verilog` | Icarus Verilog (`iverilog` + `vvp`) | yes |
+| `rust` | `/usr/bin/rustc` | yes |
 
 Adding a language is a configuration-only change. See
 [docs/languages.md](languages.md) for the full procedure.
@@ -347,8 +405,10 @@ Adding a language is a configuration-only change. See
 |---|---|---|
 | 1 | Path traversal via filename | `ValidateFilename`: `filepath.Base` check, character allowlist, no leading dot |
 | 2 | Shell-style directory commands | All filesystem ops use `os` package APIs — no shell ever runs |
-| 3 | Compiler flag injection | Per-language allowlist in YAML; wildcard suffix support for `-std=*` |
+| 3 | Compiler flag injection | Per-language, per-phase allowlist in YAML with wildcard suffix support (`-std=*`); a separate denylist overrides dangerous flags within an otherwise-broad wildcard |
 | 4 | No request size limits | `http.MaxBytesReader` at 512 KiB; source cap 256 KiB; stdin cap 64 KiB; test count cap 50 |
 | 5 | UID collisions under load | Per-request UUID from the `RequestID` middleware — unique, no retries, no races |
 | 6 | Unbounded child output | `limitedWriter` caps stdout and stderr at 4 MiB each; excess truncated with a marker appended |
 | 7 | Stale jail directories | `defer os.RemoveAll` on every exit path; `SweepOrphanDirs` at startup |
+| 8 | Unauthenticated code execution | Optional `API_KEY` + `RequireAPIKey` middleware on `POST /run` (constant-time compared) |
+| 9 | Host information leak into the jail | Fresh, namespace-scoped `/proc` mount and a synthetic `/etc` instead of bind-mounting the host's |

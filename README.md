@@ -1,38 +1,37 @@
-# sandboxd 🚀
+# sandboxd
 
 `sandboxd` is a highly secure, high-performance, multi-language compilation and execution daemon. It allows you to run untrusted code snippets concurrently inside a sandboxed environment isolated via **NsJail** (namespaces, cgroups, chroot, and resource limits) and exposes a RESTful JSON API.
 
 ---
 
-## 📖 Table of Contents
-* [🏗️ Architecture, Design & Security Docs](#🏗️-architecture-design--security-docs)
-* [⚙️ Supported Languages & Toolchains](#⚙️-supported-languages--toolchains)
-* [📦 Prerequisites](#📦-prerequisites)
-* [🚀 Running the Service](#🚀-running-the-service)
+## Table of Contents
+* [Architecture, Design & Security Docs](#architecture-design--security-docs)
+* [Supported Languages & Toolchains](#supported-languages--toolchains)
+* [Prerequisites](#prerequisites)
+* [Running the Service](#running-the-service)
   * [Option A: Running with Docker Compose (Recommended)](#option-a-running-with-docker-compose-recommended)
   * [Option B: Running Locally (Bare Metal)](#option-b-running-locally-bare-metal)
-* [🌐 API Reference](#🌐-api-reference)
+* [API Reference](#api-reference)
   * [`GET /healthz` - Health Check](#get-healthz---health-check)
   * [`GET /readyz` - Readiness Probe](#get-readyz---readiness-probe)
   * [`GET /info` - Server & Language Info](#get-info---server--language-info)
   * [`POST /run` - Execute Code Sandbox](#post-run---execute-code-sandbox)
-* [💡 Code Submission Examples (CURL)](#💡-code-submission-examples-curl)
-* [🧪 Verification & Testing](#🧪-verification--testing)
+* [Code Submission Examples (CURL)](#code-submission-examples-curl)
+* [Verification & Testing](#verification--testing)
 
 ---
 
-## 🏗️ Architecture, Design & Security Docs
+## Architecture, Design & Security Docs
 
 Detailed production-grade guides are available in the `docs` directory:
 1. **[REST API Reference](docs/api.md):** Complete specification of the `/healthz`, `/readyz`, `/info`, and `/run` HTTP routes and payloads.
 2. **[System Architecture & Design](docs/architecture.md):** Breakdown of components, Go concurrency semaphore scheduling, and workflow sequence diagrams.
-3. **[Performance, Scale & Tuning](docs/benchmarks.md):** Memory profiles, GIL comparison, scale-out metrics, and queue tuning guides.
-4. **[Language Registry Configuration](docs/languages.md):** The dynamic plug-and-play YAML compiler schema and placeholders.
-5. **[Security Enforcement & Threat Model](docs/security.md):** Threat mitigations, kernel namespaces, chroot bind mounts, and memory/PID limits.
+3. **[Language Registry Configuration](docs/languages.md):** The dynamic plug-and-play YAML compiler schema and placeholders.
+4. **[Security Enforcement & Threat Model](docs/security.md):** Threat mitigations, kernel namespaces, chroot bind mounts, and memory/PID limits.
 
 ---
 
-## ⚙️ Supported Languages & Toolchains
+## Supported Languages & Toolchains
 
 The service defines compile and runtime rules in `config/lang.yaml`. The pre-configured toolchains are:
 
@@ -49,7 +48,7 @@ The service defines compile and runtime rules in `config/lang.yaml`. The pre-con
 
 ---
 
-## 📦 Prerequisites
+## Prerequisites
 
 *   **Docker & Docker Compose** (highly recommended, includes NsJail and all compilers pre-bundled).
 *   **Go 1.25+** (if compiling locally).
@@ -61,7 +60,7 @@ The service defines compile and runtime rules in `config/lang.yaml`. The pre-con
 
 ---
 
-## 🚀 Running the Service
+## Running the Service
 
 ### Option A: Running with Docker Compose (Recommended)
 
@@ -71,9 +70,20 @@ Running with Docker Compose is the easiest and most reliable method as it compil
     ```bash
     docker compose up --build
     ```
-    *Note: `privileged: true` is set in `docker-compose.yml` to grant Nsjail the permission to create mount-namespaces and chroot directories.*
+    *Note: `docker-compose.yml` runs the container with `cap_drop: ALL` plus an explicit
+    `cap_add` list (`SYS_ADMIN`, `SYS_CHROOT`, `SYS_RESOURCE`, `SYS_PTRACE`, `NET_ADMIN`,
+    `SETUID`, `SETGID`, `SETPCAP`, `DAC_OVERRIDE`, `CHOWN`, `KILL`) and
+    `seccomp:unconfined`/`apparmor:unconfined` — the minimum nsjail needs to create
+    namespaces and chroot, rather than the full `privileged: true`.*
 
-2.  **Verify the service is up:**
+2.  **Set an API key (strongly recommended):**
+    `POST /run` is unauthenticated unless the `API_KEY` environment variable is set. If it's
+    unset, the server logs a warning at startup and accepts unauthenticated requests — fine
+    for local development, not for anything reachable outside your own machine. Set it via
+    the `environment:` block in `docker-compose.yml` or a `.env` file, then send it as
+    `Authorization: Bearer <API_KEY>` on every `/run` request.
+
+3.  **Verify the service is up:**
     ```bash
     curl http://localhost:8089/healthz
     # Expected response: {"status":"ok"}
@@ -84,7 +94,8 @@ Running with Docker Compose is the easiest and most reliable method as it compil
 If you have Go, NsJail, and the compilers installed on your Linux machine (or inside WSL2):
 
 1.  **Configure Environment Variables:**
-    Create a `.env` file in the root directory (based on `config/.env` keys):
+    Create a `.env` file in the root directory (see `example.env` for the full list of
+    variables and their defaults):
     ```env
     PORT=:8089
     LOG_LEVEL=info
@@ -93,6 +104,7 @@ If you have Go, NsJail, and the compilers installed on your Linux machine (or in
     NSJAIL_BASE_DIR=/tmp/sandboxd-jails
     LANG_CONFIG=config/lang.yaml
     MAX_CONCURRENT=100
+    API_KEY=
     ```
 
 2.  **Run the Go application:**
@@ -103,7 +115,7 @@ If you have Go, NsJail, and the compilers installed on your Linux machine (or in
 
 ---
 
-## 🌐 API Reference
+## API Reference
 
 ### `GET /healthz` - Health Check
 Verifies the REST server is alive.
@@ -143,6 +155,8 @@ Returns system statistics, global limit boundaries, build metadata, and runtime 
 
 ### `POST /run` - Execute Code Sandbox
 Accepts source code, test inputs, and optional limit overrides to execute inside the sandbox jail.
+*   **Authorization:** Required only if `API_KEY` is set on the server — send `Authorization: Bearer <API_KEY>`.
+    A missing/wrong key returns `401 Unauthorized`.
 *   **Status Code:** `200 OK`
 *   **Payload Schema (`models.RunRequest`):**
     ```json
@@ -170,19 +184,31 @@ Accepts source code, test inputs, and optional limit overrides to execute inside
           "status": "accepted",
           "stdout": "Hello World",
           "stderr": "",
-          "exit_code": 0,
+          "Exitcode": 0,
           "duration_ms": 35,
           "memory_peak_kb": 3120
         }
       ]
     }
     ```
+    *Note: the exit-code field is serialized as `Exitcode` (capitalized, no underscore) —
+    an inconsistency with the rest of the snake_case response fields, kept as-is here
+    because it reflects the current API's actual JSON output.*
+*   **Error Response (4xx/5xx):**
+    ```json
+    { "error": { "code": "disallowed_flag", "message": "flag \"-fsanitize=address\" is not on the allowlist for this language" } }
+    ```
+    Common `error.code` values: `missing_field`, `invalid_json`, `unknown_language`,
+    `invalid_filename`, `source_too_large`, `too_many_tests`, `disallowed_flag`,
+    `denied_flag` (explicitly blocked even though it matches an allowlist wildcard —
+    see `flag_denylist` in [docs/languages.md](docs/languages.md)), `unauthorized`,
+    `internal_error`.
 
 ---
 
-## 💡 Code Submission Examples (CURL)
+## Code Submission Examples (CURL)
 
-### 🐍 Python 3 (`py3`) Example
+### Python 3 (`py3`) Example
 ```bash
 curl -X POST http://localhost:8089/run \
   -H "Content-Type: application/json" \
@@ -195,7 +221,7 @@ curl -X POST http://localhost:8089/run \
   }'
 ```
 
-### 🦀 Rust (`rust`) Example
+### Rust (`rust`) Example
 ```bash
 curl -X POST http://localhost:8089/run \
   -H "Content-Type: application/json" \
@@ -208,7 +234,7 @@ curl -X POST http://localhost:8089/run \
   }'
 ```
 
-### ☕ Java (`java`) Example
+### Java (`java`) Example
 *Note: Java requires class and filename matching. Submit custom filename strategy parameters:*
 ```bash
 curl -X POST http://localhost:8089/run \
@@ -226,7 +252,7 @@ curl -X POST http://localhost:8089/run \
 
 ---
 
-## 🧪 Verification & Testing
+## Verification & Testing
 
 To run the automated suite of unit and integration sandbox execution tests:
 
