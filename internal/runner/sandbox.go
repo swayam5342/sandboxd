@@ -166,6 +166,7 @@ func (r *Runner) runPhase(ctx context.Context, args phaseArgs) (*phaseResult, er
 		jailArtifactPath,
 		args.extraFlags,
 		jailWorkdir,
+		args.artifactFilename,
 	)
 
 	jailCmd := args.cmd
@@ -199,7 +200,7 @@ func (r *Runner) runPhase(ctx context.Context, args phaseArgs) (*phaseResult, er
 
 	stdout := truncateIfNeeded(stdoutBuf.String())
 	stderr := truncateIfNeeded(stderrBuf.String())
-	status := mapExitStatus(runErr, args.isBuild)
+	status := mapExitStatus(runErr, args.isBuild, durationMs, args.limits, memoryPeakKB)
 
 	r.logger.Info("phase result",
 		"is_build", args.isBuild,
@@ -226,8 +227,25 @@ func (r *Runner) runPhase(ctx context.Context, args phaseArgs) (*phaseResult, er
 	}, nil
 }
 
-// todo
-func mapExitStatus(err error, isBuild bool) string {
+// nsjail exit codes 2 and 3 are its convention for "I killed the child for
+// exceeding the time/memory limit" — but in STANDALONE_ONCE mode, a child
+// that exits normally (not killed) has its own exit code passed straight
+// through as nsjail's exit code too. A submitted program calling exit(2) or
+// exit(3) itself (a common, unremarkable exit code choice) is therefore
+// indistinguishable from a real limit-triggered kill by exit code alone.
+// hitWallTime/hitMemoryLimit cross-check against what we actually measured
+// so an ordinary exit(2)/exit(3) isn't misreported as time/memory_exceeded.
+const limitToleranceFraction = 0.9
+
+func hitWallTime(durationMs int64, wallTimeS int) bool {
+	return durationMs >= int64(float64(wallTimeS)*1000*limitToleranceFraction)
+}
+
+func hitMemoryLimit(memoryPeakKB int64, memoryLimitKB int) bool {
+	return memoryLimitKB > 0 && memoryPeakKB >= int64(float64(memoryLimitKB)*limitToleranceFraction)
+}
+
+func mapExitStatus(err error, isBuild bool, durationMs int64, limits config.Limits, memoryPeakKB int64) string {
 	if err == nil {
 		if isBuild {
 			return models.BuildOK
@@ -246,12 +264,18 @@ func mapExitStatus(err error, isBuild bool) string {
 		if isBuild {
 			return models.BuildFailed
 		}
-		return models.TestTimeExceeded
+		if hitWallTime(durationMs, limits.WallTimeS) {
+			return models.TestTimeExceeded
+		}
+		return models.TestRuntimeError
 	case 3:
 		if isBuild {
 			return models.BuildFailed
 		}
-		return models.TestMemoryExceeded
+		if hitMemoryLimit(memoryPeakKB, limits.MemoryKB) {
+			return models.TestMemoryExceeded
+		}
+		return models.TestRuntimeError
 	default:
 		if isBuild {
 			return models.BuildFailed
@@ -334,7 +358,7 @@ func writeMinimalEtc(sandboxDir string) error {
 	return nil
 }
 
-func expandArgs(templateArgs []string, sourcePath, artifactPath string, flags []string, workdir string) []string {
+func expandArgs(templateArgs []string, sourcePath, artifactPath string, flags []string, workdir, artifactName string) []string {
 	var result []string
 	for _, arg := range templateArgs {
 		switch arg {
@@ -346,6 +370,11 @@ func expandArgs(templateArgs []string, sourcePath, artifactPath string, flags []
 			result = append(result, artifactPath)
 		case "{{workdir}}":
 			result = append(result, workdir)
+		case "{{artifact_name}}":
+			// Bare artifact filename, no leading "/" — for arguments that
+			// need a name rather than a path (e.g. java -cp <dir> <class>,
+			// where the class name must not be prefixed with a slash).
+			result = append(result, artifactName)
 		default:
 			result = append(result, arg)
 		}
@@ -431,10 +460,16 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 	}
 	// Debian's update-alternatives points toolchain entrypoints (cc, javac,
 	// ...) through /etc/alternatives/*, and OpenJDK's own conf/ is symlinked
-	// into /etc/java-17-openjdk; without these, those symlinks dangle inside
-	// the jail. Just toolchain indirection/config, not host secrets — but
-	// only bind-mount what's actually present on this host/image.
-	for _, etcDir := range []string{"/etc/alternatives", "/etc/java-17-openjdk"} {
+	// into /etc/java-<N>-openjdk (version-specific — 17 in the Docker image,
+	// but this varies by host/JDK version, hence the glob); without these,
+	// those symlinks dangle inside the jail. Just toolchain indirection/
+	// config, not host secrets — but only bind-mount what's actually
+	// present on this host/image.
+	etcDirs := []string{"/etc/alternatives"}
+	if javaEtcDirs, err := filepath.Glob("/etc/java-*-openjdk"); err == nil {
+		etcDirs = append(etcDirs, javaEtcDirs...)
+	}
+	for _, etcDir := range etcDirs {
 		if _, err := os.Stat(etcDir); err == nil {
 			args = append(args, "--bindmount_ro", etcDir)
 		}

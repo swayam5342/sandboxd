@@ -141,13 +141,15 @@ languages:
     run:
       cmd: /usr/bin/java
       # Same reasoning as -J-Xmx above, for the program's own JVM.
+      # {{artifact_name}} (not {{artifact}}) — java wants a bare class name
+      # ("Main"), not a path ("/Main"); the latter throws ClassNotFoundException.
       args:
         [
           "-Xmx256m",
           "-XX:-UseCompressedClassPointers",
           "-cp",
           "{{workdir}}",
-          "{{artifact}}",
+          "{{artifact_name}}",
         ]
       limits:
         wall_time_s: 10
