@@ -64,8 +64,17 @@ func main() {
 		logger.Warn("API_KEY is not set — /run is unauthenticated and open to anyone who can reach this port")
 	}
 
+	nsjailCfgPath := util.EnvOr("NSJAIL_CONFIG", "config/nsjail.yaml")
+	nsjailCfg, err := config.LoadNsjailConfig(nsjailCfgPath)
+	if err != nil {
+		logger.Error("failed to load nsjail config", "path", nsjailCfgPath, "error", err)
+		os.Exit(1)
+	}
+	logger.Info("nsjail config loaded", "path", nsjailCfgPath, "bind_mounts", len(nsjailCfg.BindMountsRO), "extra_flags", len(nsjailCfg.ExtraFlags))
+
 	r := runner.New(runner.Options{
 		NsjailPath:    nsjailPath,
+		NsjailConfig:  &nsjailCfg,
 		MaxConcurrent: maxConcurrent,
 		Logger:        logger,
 	})

@@ -25,12 +25,14 @@ type Job struct {
 
 type Options struct {
 	NsjailPath    string
+	NsjailConfig  *config.NsjailConfig // nil uses config.DefaultNsjailConfig()
 	MaxConcurrent int
 	Logger        *slog.Logger
 }
 
 type Runner struct {
 	nsjailPath    string
+	nsjailConfig  config.NsjailConfig
 	sem           chan struct{}
 	maxConcurrent int
 	inFlight      atomic.Int32
@@ -42,8 +44,13 @@ func New(opts Options) *Runner {
 	if max <= 0 {
 		max = runtime.NumCPU()
 	}
+	nsjailCfg := config.DefaultNsjailConfig()
+	if opts.NsjailConfig != nil {
+		nsjailCfg = *opts.NsjailConfig
+	}
 	return &Runner{
 		nsjailPath:    opts.NsjailPath,
+		nsjailConfig:  nsjailCfg,
 		sem:           make(chan struct{}, max),
 		maxConcurrent: max,
 		logger:        opts.Logger,

@@ -240,7 +240,7 @@ func TestHitMemoryLimit_ZeroLimit_NeverTrue(t *testing.T) {
 
 func TestBuildNsjailArgs_Structure(t *testing.T) {
 	limits := config.Limits{WallTimeS: 5, MemoryKB: 65536, MaxProcesses: 50}
-	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail-123", limits, "/usr/bin/python3", []string{"/solution.py"})
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail-123", limits, "/usr/bin/python3", []string{"/solution.py"}, config.DefaultNsjailConfig())
 
 	// First element must be the nsjail binary
 	if args[0] != "/usr/sbin/nsjail" {
@@ -272,7 +272,7 @@ func TestBuildNsjailArgs_Structure(t *testing.T) {
 
 func TestBuildNsjailArgs_RequiredBindMounts(t *testing.T) {
 	limits := config.Limits{WallTimeS: 5}
-	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil)
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, config.DefaultNsjailConfig())
 
 	for _, mount := range []string{"/usr", "/bin"} {
 		if !hasPair(args, "--bindmount_ro", mount) {
@@ -295,7 +295,7 @@ func TestBuildNsjailArgs_RequiredBindMounts(t *testing.T) {
 
 func TestBuildNsjailArgs_PathEnv(t *testing.T) {
 	limits := config.Limits{WallTimeS: 5}
-	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil)
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, config.DefaultNsjailConfig())
 	if !hasPair(args, "--env", "PATH=/usr/bin:/bin:/usr/sbin:/sbin") {
 		t.Error("PATH env must be injected into the jail")
 	}
@@ -304,7 +304,7 @@ func TestBuildNsjailArgs_PathEnv(t *testing.T) {
 func TestBuildNsjailArgs_RWFlag(t *testing.T) {
 	// --rw needed so gcc can write the compiled artifact
 	limits := config.Limits{WallTimeS: 5}
-	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/gcc", nil)
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/gcc", nil, config.DefaultNsjailConfig())
 	if !contains(args, "--rw") {
 		t.Error("--rw flag required for build phase")
 	}
@@ -312,7 +312,7 @@ func TestBuildNsjailArgs_RWFlag(t *testing.T) {
 
 func TestBuildNsjailArgs_NetworkDisabled(t *testing.T) {
 	limits := config.Limits{WallTimeS: 5}
-	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil)
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, config.DefaultNsjailConfig())
 	if !contains(args, "--iface_no_lo") {
 		t.Error("--iface_no_lo must disable network inside jail")
 	}
@@ -320,7 +320,7 @@ func TestBuildNsjailArgs_NetworkDisabled(t *testing.T) {
 
 func TestBuildNsjailArgs_SeparatorBeforeCmd(t *testing.T) {
 	limits := config.Limits{WallTimeS: 9}
-	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil)
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, config.DefaultNsjailConfig())
 
 	sepIdx := indexOf(args, "--")
 	cmdIdx := indexOf(args, "/usr/bin/python3")
@@ -330,6 +330,122 @@ func TestBuildNsjailArgs_SeparatorBeforeCmd(t *testing.T) {
 	}
 	if cmdIdx <= sepIdx {
 		t.Errorf("user cmd must come AFTER --: sep=%d cmd=%d", sepIdx, cmdIdx)
+	}
+}
+
+func TestBuildNsjailArgs_DefaultUserGroup(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5}
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, config.DefaultNsjailConfig())
+	assertPair(t, args, "--user", "65534")
+	assertPair(t, args, "--group", "65534")
+}
+
+func TestBuildNsjailArgs_CustomUserGroup(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5}
+	cfg := config.DefaultNsjailConfig()
+	cfg.User = 1000
+	cfg.Group = 1000
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, cfg)
+	assertPair(t, args, "--user", "1000")
+	assertPair(t, args, "--group", "1000")
+}
+
+func TestBuildNsjailArgs_CustomRlimits(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5}
+	cfg := config.DefaultNsjailConfig()
+	cfg.Rlimits.FsizeMB = 256
+	cfg.Rlimits.Nofile = 128
+	cfg.Rlimits.StackMB = 32
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, cfg)
+	assertPair(t, args, "--rlimit_fsize", "256")
+	assertPair(t, args, "--rlimit_nofile", "128")
+	assertPair(t, args, "--rlimit_stack", "32")
+}
+
+func TestBuildNsjailArgs_CustomASFloorAndMultiplier(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5, MemoryKB: 1024 * 1024} // 1 GB
+	cfg := config.DefaultNsjailConfig()
+	cfg.Rlimits.ASFloorMB = 100 // below what the multiplier would produce, so multiplier wins
+	cfg.Rlimits.ASMultiplier = 2
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, cfg)
+	// 1024 MB * multiplier 2 = 2048, which is above the 100 MB floor.
+	assertPair(t, args, "--rlimit_as", "2048")
+}
+
+func TestBuildNsjailArgs_MultipleEnvEntries(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5}
+	cfg := config.DefaultNsjailConfig()
+	cfg.Env = []string{"PATH=/custom/bin", "LANG=C.UTF-8"}
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, cfg)
+	if !hasPair(args, "--env", "PATH=/custom/bin") {
+		t.Error("missing custom PATH env")
+	}
+	if !hasPair(args, "--env", "LANG=C.UTF-8") {
+		t.Error("missing custom LANG env")
+	}
+}
+
+func TestBuildNsjailArgs_BindMountsRO_OnlyExistingPathsIncluded(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5}
+	tmpDir := t.TempDir()
+	cfg := config.DefaultNsjailConfig()
+	cfg.BindMountsRO = []string{tmpDir, "/definitely/does/not/exist-xyz"}
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, cfg)
+	if !hasPair(args, "--bindmount_ro", tmpDir) {
+		t.Errorf("expected existing configured path %q to be bind-mounted", tmpDir)
+	}
+	if hasPair(args, "--bindmount_ro", "/definitely/does/not/exist-xyz") {
+		t.Error("a configured path that doesn't exist on this host must not be bind-mounted")
+	}
+}
+
+func TestBuildNsjailArgs_BindMountsRO_GlobExpansion(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5}
+	tmpDir := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.Mkdir(filepath.Join(tmpDir, name), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+	cfg := config.DefaultNsjailConfig()
+	cfg.BindMountsRO = []string{filepath.Join(tmpDir, "*")}
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, cfg)
+	if !hasPair(args, "--bindmount_ro", filepath.Join(tmpDir, "a")) {
+		t.Error("expected glob to expand and match the first entry")
+	}
+	if !hasPair(args, "--bindmount_ro", filepath.Join(tmpDir, "b")) {
+		t.Error("expected glob to expand and match the second entry")
+	}
+}
+
+func TestBuildNsjailArgs_ExtraFlags_AppendedBeforeSeparator(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5}
+	cfg := config.DefaultNsjailConfig()
+	cfg.ExtraFlags = []string{"--verbose", "--something_new"}
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, cfg)
+
+	sepIdx := indexOf(args, "--")
+	extraIdx := indexOf(args, "--verbose")
+	if extraIdx == -1 {
+		t.Fatal("extra_flags entry not found in args")
+	}
+	if extraIdx >= sepIdx {
+		t.Errorf("extra_flags must come BEFORE the -- separator: extra=%d sep=%d", extraIdx, sepIdx)
+	}
+	if !contains(args, "--something_new") {
+		t.Error("expected all extra_flags entries to be present")
+	}
+}
+
+func TestBuildNsjailArgs_EmptyExtraFlags_NoEffect(t *testing.T) {
+	limits := config.Limits{WallTimeS: 5}
+	args := NsjailArgs("/usr/sbin/nsjail", "/tmp/jail", limits, "/usr/bin/python3", nil, config.DefaultNsjailConfig())
+	// Sanity check that the default (no extra_flags) config produces the
+	// same args as before this feature existed — i.e. still ends with the
+	// bare command right after "--".
+	sepIdx := indexOf(args, "--")
+	if sepIdx == -1 || sepIdx+1 >= len(args) || args[sepIdx+1] != "/usr/bin/python3" {
+		t.Errorf("expected command to immediately follow --, got %v", args[sepIdx:])
 	}
 }
 

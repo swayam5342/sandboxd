@@ -24,6 +24,7 @@ var (
 	JailBaseDir      string        = util.EnvOr("NSJAIL_BASE_DIR", "/tmp/sandboxd-jails")
 	OrphanMaxAge     time.Duration = time.Duration(util.EnvIntOr("ORPHAN_PROC_TIME", 10)) * time.Minute
 )
+
 const (
 	sandboxUID = 65534
 	sandboxGID = 65534
@@ -173,7 +174,7 @@ func (r *Runner) runPhase(ctx context.Context, args phaseArgs) (*phaseResult, er
 	jailCmd = strings.ReplaceAll(jailCmd, "{{artifact}}", jailArtifactPath)
 	jailCmd = strings.ReplaceAll(jailCmd, "{{source}}", jailSourcePath)
 
-	nsjailArgs := NsjailArgs(r.nsjailPath, args.sandboxDir, args.limits, jailCmd, expandedArgs)
+	nsjailArgs := NsjailArgs(r.nsjailPath, args.sandboxDir, args.limits, jailCmd, expandedArgs, r.nsjailConfig)
 
 	//? for debug only and if posilbe switch to protobuff for config
 	//r.logger.Info("nsjail command", "full_cmd", strings.Join(nsjailArgs, " "))
@@ -413,7 +414,7 @@ func firstN(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd string, userArgs []string) []string {
+func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd string, userArgs []string, nsjailCfg config.NsjailConfig) []string {
 	args := []string{
 		nsjailPath,
 		"--mode", "o",
@@ -421,30 +422,24 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 		"--chroot", sandboxDir,
 		"--rw",
 		"--cwd", "/",
-		"--user", "65534",
-		"--group", "65534",
+		"--user", fmt.Sprintf("%d", nsjailCfg.User),
+		"--group", fmt.Sprintf("%d", nsjailCfg.Group),
 		"--iface_no_lo",
 		"--time_limit", fmt.Sprintf("%d", limits.WallTimeS),
 
 		// rlimit-based limits work on WSL2 and Docker without cgroup v2
-		"--rlimit_fsize", "128", // max file write: 128 MB
-		"--rlimit_nofile", "64", // max open file descriptors
-		"--rlimit_stack", "64", // max stack: 64 MB
+		"--rlimit_fsize", fmt.Sprintf("%d", nsjailCfg.Rlimits.FsizeMB),
+		"--rlimit_nofile", fmt.Sprintf("%d", nsjailCfg.Rlimits.Nofile),
+		"--rlimit_stack", fmt.Sprintf("%d", nsjailCfg.Rlimits.StackMB),
 
-		"--rlimit_as", fmt.Sprintf("%d", rlimitASMB(limits.MemoryKB)), // max address space, in MB
+		"--rlimit_as", fmt.Sprintf("%d", rlimitASMB(limits.MemoryKB, nsjailCfg.Rlimits.ASFloorMB, nsjailCfg.Rlimits.ASMultiplier)),
 		"--rlimit_nproc", fmt.Sprintf("%d", clampMinInt(limits.MaxProcesses, 1)), // max processes/threads
-		"--bindmount_ro", "/usr",
-		"--bindmount_ro", "/lib",
-		"--bindmount_ro", "/lib64",
-		"--bindmount_ro", "/bin",
-		// A source of entropy for anything doing crypto/SecureRandom init
-		// (notably the JVM) — narrowly scoped, not the whole host /dev.
-		"--bindmount_ro", "/dev/urandom",
-		"--bindmount_ro", "/dev/null",
-		"--mount", "none:/proc:proc:",
 
-		// Inject safe environment path so compilers/runtimes can find toolchain binaries (e.g. ld)
-		"--env", "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+		// Fresh procfs scoped to the jail's own PID namespace — deliberately
+		// NOT config-driven (see config.NsjailConfig's doc comment): bind-
+		// mounting the host's real /proc here would leak the host's process
+		// list into the jail.
+		"--mount", "none:/proc:proc:",
 	}
 	if os.Geteuid() == 0 {
 		// Skip creating a nested user namespace: writing its uid_map/gid_map
@@ -456,22 +451,24 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 		// Only safe/needed when nsjail itself runs as euid 0 (the Docker
 		// image); an unprivileged caller uses nsjail's normal unprivileged
 		// CLONE_NEWUSER path instead, which needs no special capabilities.
+		// Deliberately not config-driven, for the same reason as above.
 		args = append(args, "--disable_clone_newuser")
 	}
-	// Debian's update-alternatives points toolchain entrypoints (cc, javac,
-	// ...) through /etc/alternatives/*, and OpenJDK's own conf/ is symlinked
-	// into /etc/java-<N>-openjdk (version-specific — 17 in the Docker image,
-	// but this varies by host/JDK version, hence the glob); without these,
-	// those symlinks dangle inside the jail. Just toolchain indirection/
-	// config, not host secrets — but only bind-mount what's actually
-	// present on this host/image.
-	etcDirs := []string{"/etc/alternatives"}
-	if javaEtcDirs, err := filepath.Glob("/etc/java-*-openjdk"); err == nil {
-		etcDirs = append(etcDirs, javaEtcDirs...)
+	for _, env := range nsjailCfg.Env {
+		args = append(args, "--env", env)
 	}
-	for _, etcDir := range etcDirs {
-		if _, err := os.Stat(etcDir); err == nil {
-			args = append(args, "--bindmount_ro", etcDir)
+	// Each entry may be a literal path or a glob pattern (e.g. the OpenJDK
+	// version glob); only bind-mount what's actually present on this
+	// host/image rather than failing nsjail startup over an absent path.
+	for _, pattern := range nsjailCfg.BindMountsRO {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, path := range matches {
+			if _, err := os.Stat(path); err == nil {
+				args = append(args, "--bindmount_ro", path)
+			}
 		}
 	}
 	if nsjailCgroupWorks() {
@@ -480,6 +477,7 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 			"--cgroup_pids_max", fmt.Sprintf("%d", limits.MaxProcesses),
 		)
 	}
+	args = append(args, nsjailCfg.ExtraFlags...)
 
 	args = append(args, "--", userCmd)
 	return append(args, userArgs...)
@@ -493,9 +491,8 @@ func NsjailArgs(nsjailPath, sandboxDir string, limits config.Limits, userCmd str
 // coarse backstop against truly pathological allocation/fork-bomb-style
 // virtual memory abuse when cgroups aren't available — not a precise cap;
 // precise physical-memory enforcement is cgroup_mem_max's job when it works.
-func rlimitASMB(memoryKB int) int {
-	const floorMB = 1536
-	mb := (memoryKB / 1024) * 4
+func rlimitASMB(memoryKB, floorMB, multiplier int) int {
+	mb := (memoryKB / 1024) * multiplier
 	if mb < floorMB {
 		return floorMB
 	}
