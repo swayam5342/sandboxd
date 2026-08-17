@@ -7,13 +7,13 @@ import (
 	"testing"
 )
 
-func TestLoadNsjailConfig_MissingFile_ReturnsDefaults(t *testing.T) {
-	cfg, err := LoadNsjailConfig(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
-	if err != nil {
-		t.Fatalf("LoadNsjailConfig() error: %v", err)
-	}
-	if !reflect.DeepEqual(cfg, DefaultNsjailConfig()) {
-		t.Errorf("want defaults when file is absent, got %+v", cfg)
+func TestLoadNsjailConfig_MissingFile_IsAnError(t *testing.T) {
+	// The runtime path must never silently fall back to DefaultNsjailConfig
+	// when the file is absent — same as LoadFile for lang.yaml, a missing
+	// config file is fatal, not a "use the defaults" signal.
+	_, err := LoadNsjailConfig(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+	if err == nil {
+		t.Fatal("expected an error for a missing nsjail config file")
 	}
 }
 
@@ -160,8 +160,9 @@ func TestLoadNsjailConfig_ZeroASFloorOrMultiplier_Rejected(t *testing.T) {
 
 func TestDefaultNsjailConfig_MatchesPreviousHardcodedValues(t *testing.T) {
 	// Pins the exact values that used to be hardcoded in NsjailArgs, so a
-	// future edit here can't silently change zero-config (no nsjail.yaml)
-	// behavior without a test failing.
+	// future edit here can't silently change the built-in baseline (used by
+	// tests, and as the seed the checked-in config/nsjail.yaml was written
+	// from) without a test failing.
 	cfg := DefaultNsjailConfig()
 	if cfg.User != 65534 || cfg.Group != 65534 {
 		t.Errorf("want user/group 65534/65534, got %d/%d", cfg.User, cfg.Group)
@@ -174,5 +175,19 @@ func TestDefaultNsjailConfig_MatchesPreviousHardcodedValues(t *testing.T) {
 	}
 	if len(cfg.ExtraFlags) != 0 {
 		t.Errorf("want no default extra_flags, got %v", cfg.ExtraFlags)
+	}
+}
+
+func TestLoadNsjailConfig_ShippedFileMatchesDefaults(t *testing.T) {
+	// The checked-in config/nsjail.yaml is meant to be exactly
+	// DefaultNsjailConfig() written out as YAML — this pins that so the two
+	// can't silently drift apart (e.g. someone changes DefaultNsjailConfig
+	// but forgets to update the shipped file, or vice versa).
+	cfg, err := LoadNsjailConfig("../../config/nsjail.yaml")
+	if err != nil {
+		t.Fatalf("LoadNsjailConfig(config/nsjail.yaml) error: %v", err)
+	}
+	if !reflect.DeepEqual(cfg, DefaultNsjailConfig()) {
+		t.Errorf("checked-in config/nsjail.yaml has drifted from DefaultNsjailConfig()\ngot:  %+v\nwant: %+v", cfg, DefaultNsjailConfig())
 	}
 }

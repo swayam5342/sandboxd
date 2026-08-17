@@ -1,0 +1,28 @@
+user: 65534
+group: 65534
+
+rlimits:
+  fsize_mb: 128
+  nofile: 64
+  stack_mb: 64
+  as_floor_mb: 1536
+  as_multiplier: 4
+
+env:
+  - "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
+
+bind_mounts_ro:
+  - /usr
+  - /lib
+  - /lib64
+  - /bin
+  - /etc/alternatives
+  - /etc/java-*-openjdk
+  - /dev/urandom
+  - /dev/null
+
+# Escape hatch for a future/unmodeled nsjail flag, e.g.:
+#   extra_flags:
+#     - "--some_new_flag"
+# Left unset here (rather than an explicit empty list) since this key is
+# meant to be absent by default, not present-but-empty.
