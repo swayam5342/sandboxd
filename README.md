@@ -13,7 +13,7 @@
 [![Isolation](https://img.shields.io/badge/isolation-NsJail-4cb3f0?style=flat-square&labelColor=0d3a55)](docs/security.md)
 [![Docker](https://img.shields.io/badge/run%20with-Docker%20Compose-4cb3f0?style=flat-square&logo=docker&logoColor=white&labelColor=0d3a55)](#option-a-running-with-docker-compose-recommended)
 [![Docker Hub](https://img.shields.io/docker/v/swayam5342/sandboxd?sort=date&style=flat-square&logo=docker&logoColor=white&label=docker%20hub&labelColor=0d3a55&color=4cb3f0)](https://hub.docker.com/r/swayam5342/sandboxd)
-[![Image size](https://img.shields.io/docker/image-size/swayam5342/sandboxd/latest?style=flat-square&labelColor=0d3a55&color=4cb3f0)](https://hub.docker.com/r/swayam5342/sandboxd/tags)
+[![Image size](https://img.shields.io/docker/image-size/swayam5342/sandboxd/core?style=flat-square&labelColor=0d3a55&color=4cb3f0)](https://hub.docker.com/r/swayam5342/sandboxd/tags)
 
 [**Website**](https://swayam5342.github.io/sandboxd/) &nbsp;&middot;&nbsp; [API](docs/api.md) &nbsp;&middot;&nbsp; [Architecture](docs/architecture.md) &nbsp;&middot;&nbsp; [Languages](docs/languages.md) &nbsp;&middot;&nbsp; [Security](docs/security.md)
 
@@ -85,7 +85,7 @@ doesn't carry a JDK and a Rust compiler.
 
 | Image | What's inside | Size |
 | :--- | :--- | :--- |
-| [`swayam5342/sandboxd:core`](https://hub.docker.com/r/swayam5342/sandboxd) (also `latest`) | sandboxd, NsJail, bash | ~145 MB |
+| [`swayam5342/sandboxd:core`](https://hub.docker.com/r/swayam5342/sandboxd) | sandboxd, NsJail, bash | ~145 MB |
 | `swayam5342/sandboxd:core-<commit>` | the same, pinned to one commit. Use this in production. | ~145 MB |
 
 > [!IMPORTANT]
