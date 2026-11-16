@@ -29,7 +29,7 @@ RUN git clone --recursive https://github.com/google/nsjail.git /nsjail && \
 # ==============================================================================
 # STAGE 2: Build the Go Sandboxd Application
 # ==============================================================================
-FROM golang:1.25-bookworm AS go-builder
+FROM golang:1.27-bookworm AS go-builder
 
 WORKDIR /app
 
