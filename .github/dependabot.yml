@@ -1,0 +1,65 @@
+# Dependabot: weekly version-update PRs for everything the repo depends on.
+# Security fixes are opened as soon as an advisory lands, independent of this schedule.
+version: 2
+
+updates:
+  # Go modules (chi, yaml, ...) for the daemon
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, go]
+    commit-message:
+      prefix: "deps(go)"
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  # npm packages for the website (Next.js, React, TypeScript)
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, website]
+    commit-message:
+      prefix: "deps(site)"
+    groups:
+      site-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Base images in the core Dockerfile (debian, golang)
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: "deps(docker)"
+
+  # Base image in the full-languages example (swayam5342/sandboxd:core)
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: "deps(docker)"
+
+  # Actions used by the Pages workflow
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: "deps(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
