@@ -7,7 +7,7 @@ const instrument = Instrument_Sans({ subsets: ["latin"], variable: "--font-instr
 const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://swayam5342.github.io"),
+  metadataBase: new URL("https://sandboxd.swayam.li"),
   title: "sandboxd: run code you don’t trust",
   description:
     "A Go daemon that compiles and runs untrusted code in any configured language, jailed by NsJail as user nobody, offline, behind a JSON API.",
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     description: "A Go daemon that runs untrusted code in any configured language inside NsJail, as uid 65534, offline, behind a JSON API.",
     images: [{ url: `${base}/og.png`, width: 1200, height: 630, alt: "sandboxd: run code you don’t trust" }],
     type: "website",
-    url: "https://swayam5342.github.io/sandboxd/",
+    url: "https://sandboxd.swayam.li/",
   },
   twitter: { card: "summary_large_image", title: "sandboxd: run code you don’t trust", images: [`${base}/og.png`] },
   icons: {
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     apple: `${base}/apple-touch-icon.png`,
   },
   manifest: `${base}/manifest.webmanifest`,
-  alternates: { canonical: "https://swayam5342.github.io/sandboxd/" },
+  alternates: { canonical: "https://sandboxd.swayam.li/" },
 };
 
 export const viewport: Viewport = { themeColor: "#000000", width: "device-width", initialScale: 1 };

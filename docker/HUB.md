@@ -5,7 +5,7 @@ inside [NsJail](https://github.com/google/nsjail): each submission runs as user 
 (uid 65534), with no network, a read-only system, and hard limits on time, memory and
 processes, behind a JSON API.
 
-- Website: https://swayam5342.github.io/sandboxd/
+- Website: https://sandboxd.swayam.li/
 - Source and docs: https://github.com/swayam5342/sandboxd
 
 ## Tags

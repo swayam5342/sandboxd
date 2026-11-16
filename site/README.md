@@ -13,7 +13,7 @@ npm run build      # static export into out/
 
 `.github/workflows/pages.yml` builds `site/` and publishes `site/out` on every push to `main`
 that touches `site/`. It sets `PAGES_BASE_PATH` from the Pages config, so the site works under
-`https://<user>.github.io/sandboxd/`.
+the custom domain in `CNAME` (sandboxd.swayam.li), or `https://<user>.github.io/sandboxd/` without one.
 
 One-time setup: in the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
 
