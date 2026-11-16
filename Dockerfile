@@ -40,44 +40,39 @@ RUN go mod download
 # Copy the rest of the application
 COPY . .
 
-# Compile a statically linked Go binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/sandboxd ./cmd/sandbox/main.go
+# Compile a statically linked Go binary, stamping the version and commit reported by GET /info
+ARG VERSION=dev
+ARG REVISION=unknown
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${REVISION}" \
+    -o /app/sandboxd ./cmd/sandbox/main.go
 
 # ==============================================================================
 # STAGE 3: Final Production Runtime Image
 # ==============================================================================
 FROM debian:bookworm-slim
 
-LABEL maintainer="Swayam <swayam@example.com>"
-LABEL description="Secure Sandbox Runner Service powered by NsJail and Go"
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG CREATED=unknown
+LABEL org.opencontainers.image.title="sandboxd" \
+      org.opencontainers.image.description="Run code you don't trust: compiles and runs untrusted code inside NsJail, as user nobody, with no network, behind a JSON API." \
+      org.opencontainers.image.authors="swayam5342" \
+      org.opencontainers.image.url="https://swayam5342.github.io/sandboxd/" \
+      org.opencontainers.image.source="https://github.com/swayam5342/sandboxd" \
+      org.opencontainers.image.documentation="https://github.com/swayam5342/sandboxd#readme" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}"
 
-# Install NsJail runtime libraries AND language toolchains
-# Languages included: Python 3, Node.js, C/C++, Java (OpenJDK 17), Verilog (Icarus), Rust
+# This is the core image: sandboxd + nsjail, with bash as the only language.
+# Language toolchains are NOT installed here. Build on top of this image and install the
+# ones you need (see docker/full.Dockerfile for all eight). The jail bind-mounts this
+# container's own /usr, /lib and /bin read-only, so a toolchain must live in the image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # NsJail dynamic link dependencies
     libprotobuf32 \
     libnl-route-3-200 \
-    \
-    # Language 1: Python 3
-    python3 \
-    python3-minimal \
-    \
-    # Language 2: Node.js
-    nodejs \
-    \
-    # Language 3 & 4: C / C++ Compilers and Standard C library headers
-    gcc \
-    g++ \
-    libc6-dev \
-    \
-    # Language 5: Java (OpenJDK 17 compiler & runtime)
-    openjdk-17-jdk-headless \
-    \
-    # Language 6: Verilog (Icarus Verilog compiler & VVP runtime)
-    iverilog \
-    \
-    # Language 7: Rust
-    rustc \
     \
     # Security/runtime utilities
     ca-certificates \
@@ -92,8 +87,10 @@ COPY --from=nsjail-builder /usr/local/bin/nsjail /usr/sbin/nsjail
 # Copy sandboxd binary from Stage 2
 COPY --from=go-builder /app/sandboxd /app/sandboxd
 
-# Copy default config and environment files
-COPY config/ /app/config/
+# Copy the nsjail config and the core language registry (bash only).
+# Images built on top replace /app/config/lang.yaml with their own registry.
+COPY config/nsjail.yaml /app/config/nsjail.yaml
+COPY config/lang.core.yaml /app/config/lang.yaml
 
 # Create base directory for jail sandboxes
 RUN mkdir -p /tmp/sandboxd-jails && chmod 777 /tmp/sandboxd-jails

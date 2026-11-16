@@ -200,7 +200,7 @@ export default function Page() {
               <li><a className="link" href={REPO}>Repository</a></li>
               <li><a className="link" href={`${REPO}/issues`}>Issues</a></li>
               <li><a className="link" href={gh("config/lang.yaml")}>lang.yaml</a></li>
-              <li><a className="link" href={gh("docker-compose.yml")}>docker-compose.yml</a></li>
+              <li><a className="link" href="https://hub.docker.com/r/swayam5342/sandboxd">Docker Hub image</a></li>
             </ul></div>
             <div><h3>Routes</h3><ul role="list">
               <li>GET /healthz</li><li>GET /readyz</li><li>GET /info</li><li>POST /run</li>

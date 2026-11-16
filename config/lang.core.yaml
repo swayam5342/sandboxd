@@ -1,0 +1,22 @@
+# Language registry baked into the published core image (swayam5342/sandboxd:core).
+#
+# The core image ships sandboxd, nsjail and bash only. sandboxd needs at least one
+# language to start, and bash is already part of the base OS, so it is the one entry.
+#
+# To add languages, build on top of core: install the toolchain in your image and
+# replace this file with your own registry. docker/full.Dockerfile does exactly that
+# for all eight languages in config/lang.yaml; see docs/languages.md for the schema.
+languages:
+  - id: bash
+    name: Bash
+    source_filename: solution.sh
+    source_filename_strategy: fixed
+    check: --version
+
+    run:
+      cmd: /bin/bash
+      args: ["{{source}}"]
+      limits:
+        wall_time_s: 9
+        memory_kb: 65536
+        max_processes: 50

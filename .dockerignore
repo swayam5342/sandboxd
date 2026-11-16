@@ -1,0 +1,22 @@
+# Keep the build context to what the image needs
+.git
+.github
+.claude
+.taste-skill
+site
+docs
+issues
+log
+*.md
+!README.md
+
+# Local environment files never go into an image
+.env
+**/.env
+!example.env
+
+# Editor and OS noise
+.vscode
+.idea
+*.swp
+.DS_Store

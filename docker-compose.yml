@@ -2,9 +2,14 @@ version: '3.8'
 
 services:
   sandboxd:
+    # Pulls the published core image (sandboxd + nsjail + bash) and installs the
+    # other seven toolchains on top. See docker/full.Dockerfile.
+    image: sandboxd-full
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/full.Dockerfile
+      args:
+        CORE_IMAGE: swayam5342/sandboxd:core
     container_name: sandboxd-service
     restart: unless-stopped
     ports:
