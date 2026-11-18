@@ -8,6 +8,7 @@
 
 `sandboxd` is a highly secure, high-performance, multi-language compilation and execution daemon. It allows you to run untrusted code snippets concurrently inside a sandboxed environment isolated via **NsJail** (namespaces, cgroups, chroot, and resource limits) and exposes a RESTful JSON API.
 
+[![CI](https://img.shields.io/github/actions/workflow/status/swayam5342/sandboxd/ci.yml?branch=main&style=flat-square&label=CI&logo=githubactions&logoColor=white&labelColor=0d3a55)](https://github.com/swayam5342/sandboxd/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.25%2B-4cb3f0?style=flat-square&logo=go&logoColor=white&labelColor=0d3a55)](go.mod)
 [![Platform](https://img.shields.io/badge/platform-Linux-4cb3f0?style=flat-square&logo=linux&logoColor=white&labelColor=0d3a55)](#prerequisites)
 [![Isolation](https://img.shields.io/badge/isolation-NsJail-4cb3f0?style=flat-square&labelColor=0d3a55)](docs/security.md)
