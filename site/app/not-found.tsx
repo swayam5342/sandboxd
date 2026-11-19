@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import SiteHeader from "@/components/SiteHeader";
 
 const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
@@ -9,10 +10,7 @@ export default function NotFound() {
   return (
     <>
     <a className="skip" href="#main">Skip to content</a>
-    <header className="nav wrap">
-      <a className="wordmark" href={`${base}/`}>sandboxd</a>
-      <nav aria-label="Main"><ul><li><a className="link" href={`${base}/#try`}>Try it</a></li><li><a className="link" href={`${base}/#start`}>API</a></li></ul></nav>
-    </header>
+    <SiteHeader base={`${base}/`} />
     <main className="nf wrap" id="main">
       <div className="nf-cell" aria-hidden="true" />
       <div className="nf-copy">

@@ -3,6 +3,7 @@ import Languages from "@/components/Languages";
 import Cells from "@/components/Cells";
 import Composer from "@/components/Composer";
 import Reveal from "@/components/Reveal";
+import SiteHeader from "@/components/SiteHeader";
 import { asset, REPO } from "@/lib/data";
 
 const d = (ms: number) => ({ "--d": `${ms}ms` }) as React.CSSProperties;
@@ -28,17 +29,7 @@ export default function Page() {
     <>
       <a className="skip" href="#main">Skip to content</a>
 
-      <header className="nav wrap">
-        <a className="wordmark" href="#top" aria-label="sandboxd, back to top"><svg className="cell-dot" viewBox="10 10 44 44" aria-hidden="true"><path d="M28 10H54V54H10V28H28Z" fill="#4cb3f0" /><rect x="13" y="13" width="11" height="11" fill="#f2f2f2" /></svg>sandboxd</a>
-        <nav aria-label="Main">
-          <ul>
-            <li><a className="link" href="#try">Try it</a></li>
-            <li><a className="link" href="#languages">Languages</a></li>
-            <li><a className="link" href="#walls">Walls</a></li>
-            <li><a className="link" href="#start">API</a></li>
-          </ul>
-        </nav>
-      </header>
+      <SiteHeader />
 
       <main id="main">
         {/* Hero: fragment on a shaped stage */}
