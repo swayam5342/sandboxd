@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { languages } from "@/lib/data";
+import { languages, type Lang } from "@/lib/data";
 
 // Limits are read straight out of each entry's YAML, so the readouts can't drift from the config shown.
 type Phase = { time?: number; mem?: number; procs?: number };
@@ -15,30 +15,35 @@ function limitsOf(yaml: string) {
 const fmtMem = (kb: number) => (kb >= 1048576 ? `${kb / 1048576} GB` : `${Math.round(kb / 1024)} MB`);
 
 function Readout({ name, p }: { name: string; p: Phase | null }) {
-  const cells = p
-    ? [
-        { k: "time", v: p.time ? `${p.time} s` : "default" },
-        { k: "memory", v: p.mem ? fmtMem(p.mem) : "default" },
-        ...(p.procs ? [{ k: "processes", v: String(p.procs) }] : []),
-      ]
-    : [];
+  if (!p) {
+    return (
+      <div className="ro ro-off">
+        <p className="ro-name">{name}</p>
+        <p className="ro-none">None, it runs the source</p>
+      </div>
+    );
+  }
+  const cells = [
+    { k: "time", v: p.time ? `${p.time} s` : undefined },
+    { k: "memory", v: p.mem ? fmtMem(p.mem) : undefined },
+    { k: "processes", v: p.procs ? String(p.procs) : undefined },
+  ];
   return (
     <div className="ro">
       <p className="ro-name">{name}</p>
-      {p ? (
-        <dl>
-          {cells.map((c) => (
-            <div key={c.k}><dt>{c.k}</dt><dd>{c.v}</dd></div>
-          ))}
-        </dl>
-      ) : (
-        <p className="ro-none">No build step</p>
-      )}
+      <dl>
+        {cells.map((c) => (
+          <div key={c.k} className={c.v ? undefined : "unset"}>
+            <dt>{c.k}</dt>
+            <dd>{c.v ?? "default"}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
 
-// Keys set light, values set heavy: the YAML reads by weight, not by colour.
+// Keys set light, values at full ink: the YAML reads by weight, not by colour.
 function Yaml({ text }: { text: string }) {
   return (
     <code>
@@ -46,7 +51,7 @@ function Yaml({ text }: { text: string }) {
         const [, ind, dash, key, rest] = line.match(/^(\s*)(- )?([\w-]+:)?(.*)$/)!;
         return (
           <span className="y-line" key={i}>
-            {ind}{dash}{key && <span className="y-key">{key}</span>}<span className={key ? "y-val" : "y-cont"}>{rest}</span>
+            {ind}{dash && <span className="y-key">{dash}</span>}{key && <span className="y-key">{key}</span>}<span className="y-val">{rest}</span>
           </span>
         );
       })}
@@ -54,41 +59,46 @@ function Yaml({ text }: { text: string }) {
   );
 }
 
+// One entry, as printed on the card. Every entry is rendered into the same grid cell so the card
+// is always as tall as the longest one and never jumps when the selection changes.
+function Entry({ l, on }: { l: Lang; on: boolean }) {
+  const lim = limitsOf(l.yaml);
+  return (
+    <div className="entry" data-on={on} aria-hidden={!on} inert={!on}>
+      <pre className="spec-yaml" tabIndex={on ? 0 : -1} aria-label={`${l.name} entry in lang.yaml`}><Yaml text={l.yaml} /></pre>
+      <div className="spec-lims" aria-label={`${l.name} limits`}>
+        <Readout name="Build" p={lim.build} />
+        <Readout name="Run" p={lim.run} />
+      </div>
+      <p className="spec-fact">{l.fact}</p>
+    </div>
+  );
+}
+
 export default function Languages() {
   const [id, setId] = useState("c");
-  const [fading, setFading] = useState(false);
   const l = languages.find((x) => x.id === id)!;
-  const lim = limitsOf(l.yaml);
-
-  const pick = (next: string) => {
-    if (next === id) return;
-    setFading(true);
-    window.setTimeout(() => { setId(next); setFading(false); }, 150);
-  };
 
   return (
     <section className="langs wrap" id="languages" aria-labelledby="langs-title">
+      <h2 id="langs-title" className="head langs-title">Eight ready, add&nbsp;yours</h2>
+      <ul className="langs-list" role="list">
+        {languages.map((x) => (
+          <li key={x.id}>
+            <button aria-pressed={x.id === id} onClick={() => setId(x.id)}>{x.name}</button>
+          </li>
+        ))}
+      </ul>
       <div className="spec" data-tone={l.tone} data-ui>
-        <div className={`spec-in${fading ? " fading" : ""}`}>
-          <p className="spec-head"><span>{l.bar ?? "config/lang.yaml"}</span></p>
-          <pre className="spec-yaml"><Yaml text={l.yaml} /></pre>
-          <div className="spec-lims" aria-label={`${l.name} limits`}>
-            <Readout name="Build" p={lim.build} />
-            <Readout name="Run" p={lim.run} />
-          </div>
+        <p className="spec-head">
+          <span>{l.bar ?? "config/lang.yaml"}</span>
+          <span>{l.yaml.includes("\n  build:") ? "build, then run" : "run only"}</span>
+        </p>
+        <div className="spec-body">
+          {languages.map((x) => <Entry key={x.id} l={x} on={x.id === id} />)}
         </div>
       </div>
-      <div className="langs-list">
-        <h2 id="langs-title" className="head">Eight ready, add yours</h2>
-        <ul role="list">
-          {languages.map((x) => (
-            <li key={x.id}>
-              <button aria-pressed={x.id === id} onClick={() => pick(x.id)}>{x.name}</button>
-            </li>
-          ))}
-        </ul>
-        <p className="langs-fact" aria-live="polite">{l.fact}</p>
-      </div>
+      <p className="sr" aria-live="polite">{l.fact}</p>
     </section>
   );
 }
