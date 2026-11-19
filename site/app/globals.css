@@ -432,8 +432,9 @@ h1, h2, h3 { text-wrap: balance; }
   .langs-list h2 { font-size: var(--step-lead); margin-bottom: 8px; }
   .langs-list ul { display: flex; flex-wrap: wrap; gap: 0 22px; }
   .langs-list li { flex: none; }
-  .langs-list button { font-size: var(--step-lead); white-space: nowrap; min-height: 44px; }
-  .langs-list ul { padding-left: 0.7em; }
+  /* The marker sits inside each button, so the row starts flush with the heading. */
+  .langs-list button { font-size: var(--step-lead); white-space: nowrap; min-height: 44px; padding-left: 0.6em; }
+  .langs-list button::before { left: 0; }
   .langs-fact { position: relative; left: auto; top: auto; width: auto; margin: 0; font-size: 15px; }
 }
 
@@ -459,25 +460,28 @@ h1, h2, h3 { text-wrap: balance; }
 
   .life h2 { margin-bottom: 32px; }
   .bar { flex-direction: column; }
-  .seg-block { height: max(72px, calc(var(--g) * 8px)); padding: 14px 16px; }
+  .seg-block { height: max(56px, calc(var(--g) * 3px)); padding: 14px 16px; }
   .seg:first-child .seg-block { --n: 28px; }
   .seg-text { margin: 10px 0 14px; max-width: none; font-size: 16px; }
 
-  .board { grid-template-columns: 1fr 1fr; grid-auto-rows: 24vw; grid-auto-flow: row dense; gap: 6px; }
-  .board .tile { grid-column: span 1; grid-row: span 2; }
-  .board .t-head { grid-column: 1 / -1; grid-row: span 1; padding: 20px 20px 20px 48px; --n: 32px; }
-  .board .t-passwd, .board .t-out, .board .t-argv { grid-column: 1 / -1; grid-row: span 2; }
-  .board .t-net, .board .t-flag { grid-row: span 3; }
-  .board .t-lock { grid-column: 1 / -1; grid-row: span 2; }
+  /* Tiles size to their content on a phone: the close-up on top, the caption at the foot. */
+  .board { grid-template-columns: 1fr 1fr; grid-auto-rows: auto; grid-auto-flow: row dense; gap: 6px; }
+  .board .tile { grid-column: span 1; grid-row: auto; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; padding: 14px; min-height: 150px; }
+  .board .t-head { grid-column: 1 / -1; min-height: 0; padding: 20px 20px 20px 48px; --n: 32px; }
+  .board .t-passwd, .board .t-out, .board .t-argv { grid-column: 1 / -1; }
+  .board .t-lock { grid-column: 1 / -1; min-height: 190px; justify-content: flex-end; }
+  .board .zoom, .board .cap { position: static; }
+  .board .t-lock .cap { max-width: 50%; position: relative; z-index: 1; }
   .cap { left: 14px; right: 14px; bottom: 14px; }
   .cap h3 { font-size: 16px; }
   .cap p { font-size: 14px; }
-  .t-passwd .zoom { font-size: 16px; left: 16px; top: 20px; }
-  .t-net .zoom { font-size: 26px; top: 16px; left: 14px; }
-  .t-flag .zoom { font-size: 13px; top: 14px; left: 14px; }
-  .t-nproc .zoom { font-size: 40px; top: 12px; right: auto; left: 14px; }
-  .t-ro .zoom { font-size: 15px; top: 14px; left: 14px; }
+  .t-passwd .zoom { font-size: 16px; }
+  .t-net .zoom { font-size: 26px; }
+  .t-flag .zoom { font-size: 13px; }
+  .t-nproc .zoom { font-size: 40px; }
+  .t-ro .zoom { font-size: 12px; }
   .t-argv .zoom { font-size: 22px; }
+  .t-out .zoom { right: auto; }
 
   .band { padding-block: 64px; }
   .band-in { grid-template-columns: 1fr; gap: 32px; }

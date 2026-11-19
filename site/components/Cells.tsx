@@ -10,13 +10,15 @@ export default function Cells() {
 
   useEffect(() => {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    let t: number;
-    let visible = true;
+    // The timer only runs while the band is on screen; off screen nothing is scheduled.
+    let t = 0;
+    const stop = () => { window.clearTimeout(t); t = 0; };
+    const start = (delay: number) => { if (!t) t = window.setTimeout(tick, delay); };
     const host = document.querySelector(".band");
-    const io = host ? new IntersectionObserver(([e]) => { visible = e.isIntersecting; }) : null;
+    const io = host ? new IntersectionObserver(([e]) => (e.isIntersecting ? start(520) : stop())) : null;
     if (host && io) io.observe(host);
-    const tick = () => {
-      if (!visible) { t = window.setTimeout(tick, 520); return; }
+    function tick() {
+      t = 0;
       setOn((prev) => {
         const next = new Set(prev);
         const list = [...next];
@@ -24,10 +26,10 @@ export default function Cells() {
         if (list.length < 22) next.add(Math.floor(Math.random() * 100));
         return next;
       });
-      t = window.setTimeout(tick, 520);
-    };
-    t = window.setTimeout(tick, 900);
-    return () => { window.clearTimeout(t); io?.disconnect(); };
+      start(520);
+    }
+    if (!io) start(900);
+    return () => { stop(); io?.disconnect(); };
   }, []);
 
   return (
